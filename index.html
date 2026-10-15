@@ -296,10 +296,17 @@
     body:not(.m-sheet) #replayBox .rc>*{display:none}
     #replayDate{flex:1 1 110px}
     #startBtn,#randBtn{flex:none}
-    #replayBox .playrow{order:-1;flex:1 1 100%;margin-top:0;gap:6px;grid-template-columns:auto 1fr auto auto auto auto}
-    .playrow #backBtn{grid-area:1/1} .playrow #playBtn{grid-area:1/2} .playrow #stepBtn{grid-area:1/3}
-    .playrow #mLongBtn{grid-area:1/4} .playrow #mShortBtn{grid-area:1/5} .playrow #mSheetBtn{grid-area:1/6}
-    #replayBox .playrow button{padding:8px 7px;min-height:38px}
+    /* 再生はチャート左下の丸ボタン（#mPlayFab）に移したので、下のバーからは外す */
+    #replayBox .playrow{order:-1;flex:1 1 100%;margin-top:0;gap:6px;grid-template-columns:1fr 1fr auto auto auto}
+    #replayBox .playrow #playBtn{display:none}
+    .playrow #backBtn{grid-area:1/1} .playrow #stepBtn{grid-area:1/2}
+    .playrow #mLongBtn{grid-area:1/3} .playrow #mShortBtn{grid-area:1/4} .playrow #mSheetBtn{grid-area:1/5}
+    #replayBox .playrow button{padding:8px 7px;min-height:46px}
+    #mPlayFab{position:absolute;left:12px;bottom:40px;z-index:6;width:58px;height:58px;padding:0;border:none;border-radius:50%;
+      background:var(--accent);color:#1b1a27;font-size:22px;box-shadow:0 4px 14px rgba(0,0,0,.45)}
+    #mPlayFab.playing{background:#2a2840;color:var(--accent);border:2px solid var(--accent)}
+    #mPlayFab:disabled{opacity:.45}
+    #replayBox{padding-bottom:max(6px, env(safe-area-inset-bottom))}
     #mSheetBtn{width:40px}
     #mLongBtn{color:var(--up);border-color:rgba(38,166,154,.55)}
     #mShortBtn{color:var(--down);border-color:rgba(239,83,80,.55)}
@@ -445,6 +452,7 @@
     <div id="chart"></div>
     <canvas id="overlay"></canvas>
     <input id="inlineEdit" autocomplete="off" spellcheck="false">
+    <button id="mPlayFab" class="mOnly" aria-label="再生" disabled>▶</button>
   </div>
   <div id="rsiWrap">
     <div id="rsiLegend">RSI divergence <span>14 close</span> <b id="rsiVal">—</b></div>
@@ -486,8 +494,8 @@
         <button id="playBtn" disabled>▶ 再生</button>
         <button id="backBtn" disabled title="1本戻す（←キー）">◀ 1本</button>
         <button id="stepBtn" disabled title="1本進む（→キー）">1本 ▶</button>
-        <button id="mLongBtn" class="mOnly" title="買い（タップ後、チャートで価格をタップ）">買い</button>
-        <button id="mShortBtn" class="mOnly" title="売り（タップ後、チャートで価格をタップ）">売り</button>
+        <button id="mLongBtn" class="mOnly" title="買い（現在の価格でエントリー）">買い</button>
+        <button id="mShortBtn" class="mOnly" title="売り（現在の価格でエントリー）">売り</button>
         <button id="mSheetBtn" class="mOnly" title="日付・速度・成績・履歴" aria-label="パネルを開く" aria-expanded="false">☰</button>
         <select id="speed">
           <option value="1">1x</option><option value="3">3x</option>
@@ -1070,6 +1078,12 @@ const chart = LightweightCharts.createChart($('chart'), {
   timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#33304a'},
   rightPriceScale:{borderColor:'#33304a'},
 });
+// スマホ（縦：幅760px以下／横：高さ500px以下）
+const MOB_MQ = window.matchMedia('(max-width:760px), (max-height:500px)');
+const isMob = ()=> MOB_MQ.matches;
+// スマホではグリッド線を消す（PCはそのまま）
+function applyMobGrid(){ const v = !isMob(); chart.applyOptions({grid:{vertLines:{visible:v},horzLines:{visible:v}}}); }
+applyMobGrid(); MOB_MQ.addEventListener('change', applyMobGrid);
 const series = chart.addCandlestickSeries({
   upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,
   wickUpColor:'#26a69a',wickDownColor:'#ef5350',
@@ -1424,6 +1438,7 @@ function startReplayAt(i){
 }
 // 現在のリプレイ位置（最終足）へ確実にスクロール（描画タイミング差異に備えて複数回適用）
 function scrollToCurrent(){
+  if(isMob()){ mobCenter(); requestAnimationFrame(()=>{ mobCenter(); requestAnimationFrame(mobCenter); }); return; }
   const apply = ()=>{
     // 価格スケールを自動に戻す（手動で価格軸を動かすと自動スケールが切れ、
     // 価格帯の違う場所に飛んだときにローソク足が画面外に出てしまうため）
@@ -1432,6 +1447,16 @@ function scrollToCurrent(){
   };
   apply();
   requestAnimationFrame(()=>{ apply(); requestAnimationFrame(apply); });
+}
+// スマホ：ズーム（足の幅）は今のまま変えず、現在足を画面の左右中央に置く。価格軸は自動スケールで常に画面内に収める
+const MOB_BAR_SPACING = 6;   // 初回やズームが極端なときの足の幅（px）
+function mobCenter(){
+  const ts = chart.timeScale(), w = ts.width();
+  if(!w) return;
+  let bs = ts.options().barSpacing;   // 今のズーム（描画待ちなしで最新値が取れる）
+  if(!(bs >= 2 && bs <= 40)){ bs = MOB_BAR_SPACING; ts.applyOptions({barSpacing: bs}); }
+  chart.priceScale('right').applyOptions({autoScale:true});
+  ts.scrollToPosition(w/bs/2, false);
 }
 $('startBtn').onclick = startReplay;
 
@@ -1462,6 +1487,7 @@ function step(){
 // 最新足が画面の上下からはみ出しそうになったら、価格軸を自動スケールに戻して画面内に収める
 // （チャートを上下にドラッグすると自動スケールが外れるため）
 function keepPriceInView(bar){
+  if(isMob() && follow){ chart.priceScale('right').applyOptions({autoScale:true}); return; }  // スマホは毎回自動スケール
   const ts = chart.timeScale(), lr = ts.getVisibleLogicalRange();
   if(lr && (idx < lr.from || idx > lr.to)) return;           // 過去を見ている時は動かさない
   const h = $('chart').clientHeight - 30;                    // 時間軸の分を除く
@@ -1473,6 +1499,7 @@ function keepPriceInView(bar){
 }
 // 最新足を画面の真ん中に置いて追従
 function followScroll(){
+  if(isMob()){ mobCenter(); return; }
   const ts = chart.timeScale();
   const lr = ts.getVisibleLogicalRange();
   const half = lr ? (lr.to - lr.from)/2 : 30;
@@ -1507,10 +1534,12 @@ function stepBack(){
   if(follow) followScroll();
   keepPriceInView(candles[idx]);
 }
-$('backBtn').onclick = stepBack;
+// スマホはボタンで進める・戻すたびに現在足を中央へ戻す（チャートを触って追従が外れていても）
+$('backBtn').onclick = ()=>{ if(isMob()) follow = true; stepBack(); };
 
 $('stepBtn').onclick = ()=>{
   if(!candles.length) return;
+  if(isMob()) follow = true;
   if(idx < 0 || idx >= candles.length-1){ startReplay(); return; }
   step();
 };
@@ -1537,10 +1566,13 @@ function togglePlay(){
   }
   playing = true;
   follow = true;
-  // 標準ズームにリセットして現在足を画面中央に（価格スケールも自動に戻す）
-  chart.priceScale('right').applyOptions({autoScale:true});
-  const VIEW_BARS = 240;
-  chart.timeScale().setVisibleLogicalRange({from: idx - VIEW_BARS/2, to: idx + VIEW_BARS/2});
+  // 標準ズームにリセットして現在足を画面中央に（価格スケールも自動に戻す）。スマホはズームを変えない
+  if(isMob()) mobCenter();
+  else {
+    chart.priceScale('right').applyOptions({autoScale:true});
+    const VIEW_BARS = 240;
+    chart.timeScale().setVisibleLogicalRange({from: idx - VIEW_BARS/2, to: idx + VIEW_BARS/2});
+  }
   $('playBtn').textContent = '❚❚ 停止';
   startTimer();
 }
@@ -2326,7 +2358,7 @@ function hitTest(x, y){
   return null;
 }
 wrap.addEventListener('pointerdown', e=>{
-  if(e.target === ie) return;
+  if(e.target === ie || e.target.id === 'mPlayFab') return;
   const rc = wrap.getBoundingClientRect();
   const x = e.clientX-rc.left, y = e.clientY-rc.top;
   if(x > chart.timeScale().width()) return;
@@ -2435,7 +2467,7 @@ window.addEventListener('pointerup', e=>{
 
 // ダブルクリックで長方形内テキストの入力・編集（テキスト単体も編集可）
 wrap.addEventListener('dblclick', e=>{
-  if(e.target === ie) return;
+  if(e.target === ie || e.target.id === 'mPlayFab') return;
   const rc = wrap.getBoundingClientRect();
   const x = e.clientX-rc.left, y = e.clientY-rc.top;
   if(x > chart.timeScale().width()) return;
@@ -3105,6 +3137,8 @@ const rsiChart = LightweightCharts.createChart($('rsiChart'), {
   timeScale:{visible:false,borderColor:'#33304a'},
   rightPriceScale:{borderColor:'#33304a',scaleMargins:{top:0.08,bottom:0.08}},
 });
+const rsiGrid = ()=> rsiChart.applyOptions({grid:{vertLines:{visible:!isMob()}}});   // スマホはグリッドなし
+rsiGrid(); MOB_MQ.addEventListener('change', rsiGrid);
 const rsiSeries = rsiChart.addLineSeries({color:'#6f8ff5', lineWidth:1.5, priceLineVisible:false, lastValueVisible:true,
   autoscaleInfoProvider:()=>({priceRange:{minValue:0,maxValue:100}})});
 [[70,'#8d89a6'],[50,'#4a4666'],[30,'#8d89a6']].forEach(([v,c])=>rsiSeries.createPriceLine({price:v,color:c,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,axisLabelVisible:false}));
@@ -3748,16 +3782,27 @@ if(!sgProfile) sgOpenSetup();
   $('mToolsBtn').onclick = toggler('m-tools', $('mToolsBtn'));
   $('mMoreBtn').onclick  = toggler('m-more',  $('mMoreBtn'));
   $('mSheetBtn').onclick = toggler('m-sheet', $('mSheetBtn'));
-  // 買い／売り＝左ツールバーのロング／ショートと同じ（押したあとチャートの価格をタップ）
-  $('mLongBtn').onclick  = ()=>$('toolLong').click();
-  $('mShortBtn').onclick = ()=>$('toolShort').click();
+  // 買い／売り＝現在のローソク足の終値でそのままエントリー（チャートをタップし直さない）
+  $('mLongBtn').onclick  = ()=>{ if(!$('longBtn').disabled) $('longBtn').click(); };
+  $('mShortBtn').onclick = ()=>{ if(!$('shortBtn').disabled) $('shortBtn').click(); };
   const mirror = (src, dst) => {
     const f = ()=>{ dst.classList.toggle('active', src.classList.contains('active')); dst.disabled = src.disabled; };
     new MutationObserver(f).observe(src, {attributes:true, attributeFilter:['class','disabled']});
     f();
   };
-  mirror($('toolLong'), $('mLongBtn'));
-  mirror($('toolShort'), $('mShortBtn'));
+  mirror($('longBtn'), $('mLongBtn'));
+  mirror($('shortBtn'), $('mShortBtn'));
+  // チャート左下の丸い再生ボタン（下のバーの［再生］と同じ動き。表示と押せる状態も合わせる）
+  const fab = $('mPlayFab'), pb = $('playBtn');
+  fab.onclick = ()=> pb.click();
+  const syncFab = ()=>{
+    fab.disabled = pb.disabled;
+    fab.classList.toggle('playing', playing);
+    fab.textContent = playing ? '❚❚' : '▶';
+    fab.setAttribute('aria-label', playing ? '停止' : '再生');
+  };
+  new MutationObserver(syncFab).observe(pb, {attributes:true, attributeFilter:['disabled'], childList:true, characterData:true, subtree:true});
+  syncFab();
   // リプレイを開始したらパネルを閉じてチャートを広く見せる
   const closeSheet = ()=>{ if(mq.matches && B.classList.contains('m-sheet')) $('mSheetBtn').click(); };
   $('startBtn').addEventListener('click', closeSheet);
