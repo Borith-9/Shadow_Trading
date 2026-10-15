@@ -296,20 +296,22 @@
     body:not(.m-sheet) #replayBox .rc>*{display:none}
     #replayDate{flex:1 1 110px}
     #startBtn,#randBtn{flex:none}
-    /* 再生はチャート左下の丸ボタン（#mPlayFab）に移したので、下のバーからは外す */
-    #replayBox .playrow{order:-1;flex:1 1 100%;margin-top:0;gap:6px;grid-template-columns:1fr 1fr auto auto auto}
-    #replayBox .playrow #playBtn{display:none}
-    .playrow #backBtn{grid-area:1/1} .playrow #stepBtn{grid-area:1/2}
-    .playrow #mLongBtn{grid-area:1/3} .playrow #mShortBtn{grid-area:1/4} .playrow #mSheetBtn{grid-area:1/5}
+    /* 再生・◀1本・1本▶はチャート左下（#mFabRow）に移したので、下のバーは［買い］［売り］［☰］だけ */
+    #replayBox .playrow{order:-1;flex:1 1 100%;margin-top:0;gap:6px;grid-template-columns:1fr 1fr auto}
+    #replayBox .playrow #playBtn, #replayBox .playrow #backBtn, #replayBox .playrow #stepBtn{display:none}
+    .playrow #mLongBtn{grid-area:1/1} .playrow #mShortBtn{grid-area:1/2} .playrow #mSheetBtn{grid-area:1/3}
     #replayBox .playrow button{padding:8px 7px;min-height:46px}
-    #mPlayFab{position:absolute;left:12px;bottom:40px;z-index:6;width:58px;height:58px;padding:0;border:none;border-radius:50%;
-      background:var(--accent);color:#1b1a27;font-size:22px;box-shadow:0 4px 14px rgba(0,0,0,.45)}
+    #replayBox .playrow #mLongBtn, #replayBox .playrow #mShortBtn{font-size:16px;font-weight:700}
+    #mFabRow{position:absolute;left:12px;bottom:40px;z-index:6;align-items:center;gap:12px}
+    #mFabRow button{box-shadow:0 4px 12px rgba(0,0,0,.4)}
+    #mFabRow button:disabled{opacity:.45}
+    #mPlayFab{width:58px;height:58px;padding:0;border:none;border-radius:50%;background:var(--accent);color:#1b1a27;font-size:22px}
     #mPlayFab.playing{background:#2a2840;color:var(--accent);border:2px solid var(--accent)}
-    #mPlayFab:disabled{opacity:.45}
+    #mBackBtn,#mStepBtn{width:94px;height:52px;border-radius:26px;background:rgba(36,34,58,.92);font-size:15px;font-weight:700}
     #replayBox{padding-bottom:max(6px, env(safe-area-inset-bottom))}
     #mSheetBtn{width:40px}
-    #mLongBtn{color:var(--up);border-color:rgba(38,166,154,.55)}
-    #mShortBtn{color:var(--down);border-color:rgba(239,83,80,.55)}
+    #mLongBtn{color:var(--up);border-color:rgba(38,166,154,.55);background:rgba(38,166,154,.16)}
+    #mShortBtn{color:var(--down);border-color:rgba(239,83,80,.55);background:rgba(239,83,80,.16)}
     #mLongBtn.active{background:rgba(38,166,154,.2);border-color:var(--up)}
     #mShortBtn.active{background:rgba(239,83,80,.2);border-color:var(--down)}
     body:not(.m-sheet) #speed{display:none}
@@ -452,7 +454,11 @@
     <div id="chart"></div>
     <canvas id="overlay"></canvas>
     <input id="inlineEdit" autocomplete="off" spellcheck="false">
-    <button id="mPlayFab" class="mOnly" aria-label="再生" disabled>▶</button>
+    <div id="mFabRow" class="mOnly">
+      <button id="mPlayFab" aria-label="再生" disabled>▶</button>
+      <button id="mBackBtn" disabled>◀ 1本</button>
+      <button id="mStepBtn" disabled>1本 ▶</button>
+    </div>
   </div>
   <div id="rsiWrap">
     <div id="rsiLegend">RSI divergence <span>14 close</span> <b id="rsiVal">—</b></div>
@@ -1081,8 +1087,12 @@ const chart = LightweightCharts.createChart($('chart'), {
 // スマホ（縦：幅760px以下／横：高さ500px以下）
 const MOB_MQ = window.matchMedia('(max-width:760px), (max-height:500px)');
 const isMob = ()=> MOB_MQ.matches;
-// スマホではグリッド線を消す（PCはそのまま）
-function applyMobGrid(){ const v = !isMob(); chart.applyOptions({grid:{vertLines:{visible:v},horzLines:{visible:v}}}); }
+// スマホではグリッド線を消し、ローソク足を上下中央の約4割に収める（上下30%ずつ余白）。PCはそのまま
+function applyMobGrid(){
+  const v = !isMob();
+  chart.applyOptions({grid:{vertLines:{visible:v},horzLines:{visible:v}}});
+  chart.priceScale('right').applyOptions({scaleMargins: v ? {top:0.2, bottom:0.1} : {top:0.3, bottom:0.3}});
+}
 applyMobGrid(); MOB_MQ.addEventListener('change', applyMobGrid);
 const series = chart.addCandlestickSeries({
   upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,
@@ -1449,7 +1459,7 @@ function scrollToCurrent(){
   requestAnimationFrame(()=>{ apply(); requestAnimationFrame(apply); });
 }
 // スマホ：ズーム（足の幅）は今のまま変えず、現在足を画面の左右中央に置く。価格軸は自動スケールで常に画面内に収める
-const MOB_BAR_SPACING = 6;   // 初回やズームが極端なときの足の幅（px）
+const MOB_BAR_SPACING = 5;   // 初回やズームが極端なときの足の幅（px）
 function mobCenter(){
   const ts = chart.timeScale(), w = ts.width();
   if(!w) return;
@@ -2358,7 +2368,7 @@ function hitTest(x, y){
   return null;
 }
 wrap.addEventListener('pointerdown', e=>{
-  if(e.target === ie || e.target.id === 'mPlayFab') return;
+  if(e.target === ie || e.target.closest('#mFabRow')) return;
   const rc = wrap.getBoundingClientRect();
   const x = e.clientX-rc.left, y = e.clientY-rc.top;
   if(x > chart.timeScale().width()) return;
@@ -2467,7 +2477,7 @@ window.addEventListener('pointerup', e=>{
 
 // ダブルクリックで長方形内テキストの入力・編集（テキスト単体も編集可）
 wrap.addEventListener('dblclick', e=>{
-  if(e.target === ie || e.target.id === 'mPlayFab') return;
+  if(e.target === ie || e.target.closest('#mFabRow')) return;
   const rc = wrap.getBoundingClientRect();
   const x = e.clientX-rc.left, y = e.clientY-rc.top;
   if(x > chart.timeScale().width()) return;
@@ -3792,6 +3802,11 @@ if(!sgProfile) sgOpenSetup();
   };
   mirror($('longBtn'), $('mLongBtn'));
   mirror($('shortBtn'), $('mShortBtn'));
+  // チャート左下の［◀1本］［1本▶］（下のバーのボタンと同じ動き・押せる状態）
+  $('mBackBtn').onclick = ()=> $('backBtn').click();
+  $('mStepBtn').onclick = ()=> $('stepBtn').click();
+  mirror($('backBtn'), $('mBackBtn'));
+  mirror($('stepBtn'), $('mStepBtn'));
   // チャート左下の丸い再生ボタン（下のバーの［再生］と同じ動き。表示と押せる状態も合わせる）
   const fab = $('mPlayFab'), pb = $('playBtn');
   fab.onclick = ()=> pb.click();
