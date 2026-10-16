@@ -410,6 +410,7 @@
   <button id="loadBtn" title="選んだ期間でチャートを読み込み直す（描画とポジションはリセット）">読み込み</button>
   <button id="emaBtn" title="EMA20の表示/非表示">EMA20</button>
   <button id="rsiBtn" title="RSIダイバージェンスの表示/非表示">RSI</button>
+  <button id="pxBtn" title="価格軸の表示/非表示">価格</button>
   <span id="loadStatus">内蔵データを準備中…</span>
 </header>
 
@@ -1156,6 +1157,20 @@ $('emaBtn').onclick = ()=>{
   showEMA = !showEMA;
   $('emaBtn').classList.toggle('on', showEMA);
   refreshEma();
+};
+// ---------- 価格軸の表示／非表示 ----------
+// ローソク足の形で判断する練習なので、最初は非表示。選んだ状態はブラウザに保存（RSIの軸も合わせて横位置をそろえる）
+let showPx = false;
+try{ showPx = localStorage.getItem('shadowtrading.showPrice') === '1'; }catch(e){}
+chart.applyOptions({rightPriceScale:{visible:showPx}});
+$('pxBtn').classList.toggle('on', showPx);
+$('pxBtn').onclick = ()=>{
+  showPx = !showPx;
+  try{ localStorage.setItem('shadowtrading.showPrice', showPx ? '1' : '0'); }catch(e){}
+  chart.applyOptions({rightPriceScale:{visible:showPx}});
+  rsiChart.applyOptions({rightPriceScale:{visible:showPx}});
+  $('pxBtn').classList.toggle('on', showPx);
+  if(isMob() && follow) requestAnimationFrame(mobCenter);   // チャートの幅が変わるので現在足を中央に置き直す
 };
 new ResizeObserver(()=>chart.applyOptions({width:wrap.clientWidth,height:wrap.clientHeight})).observe(wrap);
 
@@ -3174,7 +3189,7 @@ const rsiChart = LightweightCharts.createChart($('rsiChart'), {
   grid:{vertLines:{color:'#1d1c2a'},horzLines:{visible:false}},
   crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
   timeScale:{visible:false,borderColor:'#33304a'},
-  rightPriceScale:{borderColor:'#33304a',scaleMargins:{top:0.08,bottom:0.08}},
+  rightPriceScale:{visible:showPx,borderColor:'#33304a',scaleMargins:{top:0.08,bottom:0.08}},
 });
 const rsiGrid = ()=> rsiChart.applyOptions({grid:{vertLines:{visible:!isMob()}}});   // スマホはグリッドなし
 rsiGrid(); MOB_MQ.addEventListener('change', rsiGrid);
