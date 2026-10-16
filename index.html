@@ -1181,6 +1181,45 @@ chart.subscribeCrosshairMove(p=>{
 
 // ---------- data ----------
 let candles = [];
+// ---- リプレイの「今の時刻」（どの足もこの時刻までを表示）----
+let replayT = null;      // 今の時刻（秒）。最後に見えているデータの終わり
+let partial = null;      // 作りかけの足 {i, full}：candles[i] を途中までの形に差し替えている
+const tfSec = ()=> TF_SEC[curTF] || (candles.length>1 ? candles[1].time-candles[0].time : 60);
+// arr の中で、time < t の最後の足の番号（なければ -1）
+function lastBefore(arr, t){
+  let lo = 0, hi = arr.length-1, ans = -1;
+  while(lo <= hi){ const m = (lo+hi)>>1; if(arr[m].time < t){ ans = m; lo = m+1; } else hi = m-1; }
+  return ans;
+}
+// 5分足から [t0, t1) の部分だけで足を作る（作りかけの足・残りの部分）
+function buildPartial(full, t0, t1){
+  const base = tfCache['5m']; if(!base) return null;
+  let j = lastBefore(base, t0) + 1, o = null;
+  for(; j < base.length && base[j].time < t1; j++){
+    const b = base[j];
+    if(!o) o = {time:full.time, open:b.open, high:b.high, low:b.low, close:b.close};
+    else { if(b.high > o.high) o.high = b.high; if(b.low < o.low) o.low = b.low; o.close = b.close; }
+  }
+  return o;
+}
+function clearPartial(){
+  if(partial){ candles[partial.i] = partial.full; partial = null; }
+}
+// 今の足（curTF）で、時刻 t に合わせる。途中なら作りかけの足を作る
+function syncToTime(t){
+  const arr = candles, sec = tfSec();
+  partial = null;
+  let i = Math.max(1, lastBefore(arr, t));
+  if(arr[i].time + sec > t){
+    const pb = buildPartial(arr[i], arr[i].time, t);
+    if(pb){ candles = arr.slice(); candles[i] = pb; partial = {i, full:arr[i]}; }
+    else if(i > 1) i--;
+  }
+  idx = i;
+  replayT = partial ? t : candles[i].time + sec;
+  computeEma();
+  if(pos && pos.entryT != null) pos.index = Math.max(0, lastBefore(candles, pos.entryT));
+}
 let idx = -1;
 let playing = false, timer = null;
 let follow = true;   // 最新足への自動追従（チャートを手で動かすと一時解除、再生で復帰）
@@ -1422,6 +1461,7 @@ async function loadData(){
   closedBoxes = [];
   autoReset(); autoStatus();
   if(!await fetchCandles()) return;
+  partial = null; replayT = null;
   idx = candles.length-1;
   series.setData(candles);
   refreshEma();
@@ -1435,9 +1475,10 @@ $('loadBtn').onclick = async ()=>{ await loadData(); if(typeof histReset==='func
 // refetch=true（期間変更など）のときだけ再ダウンロード。足の切替はキャッシュから即時。
 async function reloadKeepReplay(refetch){
   const wasPlaying = playing;
-  const inReplay = idx >= 0 && idx < candles.length-1;
-  const curTime = (idx >= 0 && idx < candles.length) ? candles[idx].time : null;
+  const inReplay = replayT != null && idx >= 0 && (idx < candles.length-1 || !!partial);
+  const nowT = replayT;
   stopPlay();
+  clearPartial();
   if(refetch){
     if(!await fetchCandles()) return;
   }else{
@@ -1447,12 +1488,9 @@ async function reloadKeepReplay(refetch){
     computeEma();
     showStatus();
   }
-  if(inReplay && curTime != null && curTime >= candles[0].time){
-    // 同じ時刻のリプレイ位置に復帰
-    let i = candles.findIndex(c=>c.time > curTime);
-    if(i < 0) i = candles.length;
-    i = Math.max(1, i-1);
-    idx = i;
+  if(inReplay && nowT != null && nowT > candles[0].time){
+    // 同じ「今の時刻」に合わせる（上位足の途中なら作りかけの足を表示）
+    syncToTime(nowT);
     series.setData(candles.slice(0, idx+1));
     refreshEma();
     scrollToCurrent();  // 現在のローソク足の位置へ自動スクロール
@@ -1461,6 +1499,7 @@ async function reloadKeepReplay(refetch){
     if(auto.on) autoRebuild(idx);
     if(wasPlaying) togglePlay();  // 再生中だったらそのまま再生を続ける
   }else{
+    replayT = null;
     idx = candles.length-1;
     series.setData(candles);
     refreshEma();
@@ -1481,7 +1520,9 @@ function startReplay(){
 }
 function startReplayAt(i){
   stopPlay(); resetPosition(false);
+  if(partial){ clearPartial(); computeEma(); }
   idx = i;
+  replayT = candles[idx].time + tfSec();
   follow = true;
   series.setData(candles.slice(0, idx+1));
   refreshEma();
@@ -1524,10 +1565,27 @@ $('randBtn').onclick = ()=>{
   startReplayAt(i);
 };
 
+// 作りかけの足を最後まで進める（決済判定は「今の時刻より後」の部分だけで行う）
+function completePartial(){
+  const i = partial.i, full = partial.full, t1 = full.time + tfSec();
+  const rest = buildPartial(full, replayT, t1) || {time:full.time, open:full.close, high:full.close, low:full.close, close:full.close};
+  candles[i] = full; partial = null; replayT = t1;
+  computeEma();
+  series.update(full);
+  if(showEMA && emaData[i]) emaSeries.update(emaData[i]);
+  if(typeof rsiOnStep==='function' && showRSI) rsiOnStep();
+  if(typeof sgOnStep==='function') sgOnStep(rest);
+  if(pos && t1 > pos.endT) pos.endT = t1;
+  if(follow) followScroll();
+  keepPriceInView(full);
+  if(pos){ const keep = pos.index; if(pos.index === i) pos.index = -1; checkExit({...rest, time:full.time}); if(pos) pos.index = keep; }
+}
 function step(){
+  if(partial && partial.i === idx){ completePartial(); return; }
   if(idx >= candles.length-1){ stopPlay(); return; }
   idx++;
   const bar = candles[idx];
+  replayT = bar.time + tfSec();
   if(typeof sgOnStep==='function') sgOnStep(bar);
   series.update(bar);
   if(showEMA && emaData[idx]) emaSeries.update(emaData[idx]);
@@ -1581,7 +1639,9 @@ function stepBack(){
     showBackHint(pos ? 'エントリーした足より前には戻れません' : '決済したトレードより前には戻れません');
     return;
   }
+  if(partial){ clearPartial(); computeEma(); }
   idx--;
+  replayT = candles[idx].time + tfSec();
   series.setData(candles.slice(0, idx+1));
   refreshEma();          // RSIも一緒に再描画される
   if(auto.on) autoRebuild(idx);
@@ -1663,16 +1723,20 @@ $('toolLong').onclick = ()=> setTool(tool==='long'?null:'long');
 $('toolShort').onclick = ()=> setTool(tool==='short'?null:'short');
 
 // ---------- 描画カラーパレット（ライン・ボックス・文字の色変更） ----------
-const PALETTE_COLORS = ['#dfe6f2','#ef5350','#26a69a','#2962ff','#e8b34b','#ab47bc','#ff9800','#26c6da'];
-let curColor = null;  // 新規描画に使う色（null=種類ごとのデフォルト）
+const PALETTE_COLORS = ['#ffe14d','#9aa0ae','#dfe6f2','#ef5350','#26a69a','#2962ff','#e8b34b','#ab47bc','#ff9800','#26c6da'];
+// 種類ごとのデフォルト色（ライン＝黄色、ボックス＝灰色、文字＝白）
+const DRAW_DEF_COLOR = {trend:'#ffe14d', rect:'#9aa0ae', text:'#dfe6f2'};
+let curColors = {};   // 描く前に選んだ色（種類ごと）。選択中の描画の色を変えても、ここは変わらない
+const drawColorOf = d => d.color || DRAW_DEF_COLOR[d.type] || '#dfe6f2';
 const paletteEl = $('palette');
 paletteEl.innerHTML = '<span class="plabel" id="palColorLabel">色</span>' + PALETTE_COLORS.map(c=>`<div class="sw" data-c="${c}" style="background:${c}"></div>`).join('')
   + '<span class="psep" id="palSep"></span><button class="pbtn" id="palCopy" title="コピー（Ctrl+C）">コピー</button><button class="pbtn" id="palPaste" title="貼り付け（Ctrl+V）">貼り付け</button><button class="pbtn del" id="palDel" title="削除（Delete）">削除</button>';
 paletteEl.addEventListener('pointerdown', e=>e.stopPropagation(), true);
 paletteEl.querySelectorAll('.sw').forEach(sw=>{
   sw.onclick = ()=>{
-    curColor = sw.dataset.c;
-    if(selDraw && selDraw.type!=='fib') selDraw.color = curColor;
+    const c = sw.dataset.c;
+    if(selDraw && selDraw.type!=='fib') selDraw.color = c;            // 選択中の描画だけ色を変える
+    else if(drawTool && drawTool!=='fib') curColors[drawTool] = c;    // 描く前に選んだ色は、その種類の新しい描画に使う
     updatePalette();
   };
 });
@@ -1681,7 +1745,8 @@ function updatePalette(){
   const colorable = (drawTool && drawTool!=='fib') || (selDraw && selDraw.type!=='fib') || !!pendingDraw;
   const hasSel = !!selDraw && !pendingDraw;
   const show = colorable || hasSel || (!!drawClip && !drawTool && !tool);
-  const active = (selDraw && selDraw.color) || curColor || '';
+  const active = (selDraw && selDraw.type!=='fib') ? drawColorOf(selDraw)
+               : (drawTool && drawTool!=='fib') ? (curColors[drawTool] || DRAW_DEF_COLOR[drawTool] || '') : '';
   const key = show+'|'+active+'|'+colorable+'|'+hasSel+'|'+!!drawClip;
   if(key === _palKey) return;
   _palKey = key;
@@ -1881,6 +1946,7 @@ function hitDrawing(x,y){
       continue;
     }
     const b = pt2xy(d.p2); if(!b) continue;
+    if(d.type==='rect'){ const h = hitRect(d, a, b, x, y); if(h) return h; continue; }
     if(Math.hypot(x-a.x,y-a.y)<7) return {d, part:'p1'};
     if(Math.hypot(x-b.x,y-b.y)<7) return {d, part:'p2'};
     if(d.type==='trend'){
@@ -1902,6 +1968,39 @@ function hitDrawing(x,y){
   }
   return null;
 }
+// ボックスの当たり判定。part：tl/tr/bl/br＝角、t/b/l/r＝辺（中点も同じ）、body＝内側（選択中のみ）
+const handleR = ()=> (typeof isMob==='function' && isMob()) ? 14 : 7;   // 指で触りやすいようにスマホは大きめ
+function rectBox(a, b){ return {x0:Math.min(a.x,b.x), x1:Math.max(a.x,b.x), y0:Math.min(a.y,b.y), y1:Math.max(a.y,b.y)}; }
+function rectHandles(a, b){
+  const r = rectBox(a,b), mx = (r.x0+r.x1)/2, my = (r.y0+r.y1)/2;
+  return [['tl',r.x0,r.y0],['tr',r.x1,r.y0],['bl',r.x0,r.y1],['br',r.x1,r.y1],
+          ['t',mx,r.y0],['b',mx,r.y1],['l',r.x0,my],['r',r.x1,my]];
+}
+function hitRect(d, a, b, x, y){
+  const R = handleR(), r = rectBox(a,b), E = Math.max(6, R-2);
+  for(const [part,hx,hy] of rectHandles(a,b)) if(Math.hypot(x-hx,y-hy) < R) return {d, part};
+  if(distSeg(x,y,r.x0,r.y0,r.x1,r.y0) < E) return {d, part:'t'};
+  if(distSeg(x,y,r.x0,r.y1,r.x1,r.y1) < E) return {d, part:'b'};
+  if(distSeg(x,y,r.x0,r.y0,r.x0,r.y1) < E) return {d, part:'l'};
+  if(distSeg(x,y,r.x1,r.y0,r.x1,r.y1) < E) return {d, part:'r'};
+  if(d===selDraw && x>r.x0 && x<r.x1 && y>r.y0 && y<r.y1) return {d, part:'body'};
+  return null;
+}
+// ボックスの辺を動かす（上下を入れ替えたら、つかんでいる辺も入れ替える）
+function dragRectEdge(d, part, p){
+  let top = Math.max(d.p1.p, d.p2.p), bot = Math.min(d.p1.p, d.p2.p);
+  let lt = Math.min(d.p1.t, d.p2.t), rt = Math.max(d.p1.t, d.p2.t);
+  if(part.includes('t')) top = p.p;
+  if(part.includes('b')) bot = p.p;
+  if(part.includes('l')) lt = p.t;
+  if(part.includes('r')) rt = p.t;
+  let np = part;
+  if(top < bot){ [top, bot] = [bot, top]; np = np.replace(/[tb]/, c=>c==='t'?'b':'t'); }
+  if(rt < lt){ [lt, rt] = [rt, lt]; np = np.replace(/[lr]/, c=>c==='l'?'r':'l'); }
+  d.p1 = {t:lt, p:top}; d.p2 = {t:rt, p:bot};
+  return np;
+}
+const RECT_CURSOR = {t:'ns-resize', b:'ns-resize', l:'ew-resize', r:'ew-resize', tl:'nwse-resize', br:'nwse-resize', tr:'nesw-resize', bl:'nesw-resize', body:'move'};
 // フィボナッチ・リトレースメント（p1=100%側、p2=0%側）
 const FIB_LEVELS = [
   {v:0,    c:'#ef5350'},
@@ -1919,20 +2018,20 @@ function renderDrawings(){
     if(d.type==='text'){
       if(editTarget && editTarget.d===d) continue;
       ctx.font = '500 12px IBM Plex Sans JP';
-      ctx.fillStyle = d.color || '#dfe6f2';
+      ctx.fillStyle = drawColorOf(d);
       ctx.fillText(d.text, a.x, a.y);
       if(sel){ const b=textBox(d); ctx.strokeStyle='#e8b34b'; ctx.setLineDash([3,3]); ctx.strokeRect(b.x,b.y,b.w,b.h); ctx.setLineDash([]); }
       continue;
     }
     const b = pt2xy(d.p2); if(!b) continue;
     if(d.type==='trend'){
-      ctx.strokeStyle = d.color || '#2962ff';
+      ctx.strokeStyle = drawColorOf(d);
       ctx.lineWidth = 1.6;
       ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
       const editing = editTarget && editTarget.d===d;
       if(d.text && !editing){
         ctx.font = '500 12px IBM Plex Sans JP';
-        ctx.fillStyle = d.color ? rgba(d.color,.95) : 'rgba(150,175,255,.95)';
+        ctx.fillStyle = rgba(drawColorOf(d), .95);
         ctx.textAlign = 'center';
         ctx.fillText(d.text, (a.x+b.x)/2, (a.y+b.y)/2 - 8);
         ctx.textAlign = 'start';
@@ -1959,7 +2058,7 @@ function renderDrawings(){
       }
     }else{
       const x0=Math.min(a.x,b.x), y0=Math.min(a.y,b.y), w=Math.abs(b.x-a.x), h2=Math.abs(b.y-a.y);
-      const rc = d.color || '#2962ff';
+      const rc = drawColorOf(d);
       ctx.fillStyle = rgba(rc, .14);
       ctx.fillRect(x0,y0,w,h2);
       ctx.strokeStyle = rgba(rc, .9);
@@ -1980,9 +2079,10 @@ function renderDrawings(){
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
     if(sel){
-      for(const p of [a,b]){
+      const pts = d.type==='rect' ? rectHandles(a,b).map(([,hx,hy])=>({x:hx,y:hy})) : [a,b];
+      for(const p of pts){
         ctx.fillStyle='#13121c'; ctx.strokeStyle='#e8b34b'; ctx.lineWidth=1.4;
-        ctx.beginPath(); ctx.arc(p.x,p.y,4,0,7); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x,p.y,(typeof isMob==='function'&&isMob())?6:4,0,7); ctx.fill(); ctx.stroke();
       }
     }
     ctx.lineWidth = 1;
@@ -2046,7 +2146,7 @@ function commitInline(){
     }else t.d.text = v;
   }else if(t.pt && v){
     const d = {type:'text', p1:t.pt, text:v};
-    if(curColor) d.color = curColor;
+    if(curColors.text) d.color = curColors.text;
     drawings.push(d); selDraw = d;
   }
 }
@@ -2087,7 +2187,7 @@ function openAt(side, entry){
   // 資金×リスク%から数量を逆算（エントリー時点のSL幅で固定＝実際の建玉と同じ）
   const riskUsd = curEquity() * (((+$('riskPct').value)||1)/100);
   const qty = riskUsd / Math.abs(entry - sl);
-  pos = {side, entry, tp, sl, qty, riskUsd, time:candles[idx].time, index:idx, startT:candles[idx].time, endT:candles[idx].time + 30*barSec()};
+  pos = {side, entry, tp, sl, qty, riskUsd, time:candles[idx].time, index:idx, entryT:replayT, startT:candles[idx].time, endT:candles[idx].time + 30*barSec()};
   $('tpInput').value = fmtP(tp);
   $('slInput').value = fmtP(sl);
   lines.entry = priceLine(entry, side==='long'?'#26a69a':'#ef5350', side.toUpperCase());
@@ -2412,7 +2512,7 @@ function hitTest(x, y){
   return null;
 }
 wrap.addEventListener('pointerdown', e=>{
-  if(e.target === ie || e.target.closest('#mFabRow')) return;
+  if(e.target === ie || e.target.closest('#mFabRow') || e.target.closest('#palette') || e.target.closest('#declPill') || e.target.closest('#gamePill')) return;
   const rc = wrap.getBoundingClientRect();
   const x = e.clientX-rc.left, y = e.clientY-rc.top;
   if(x > chart.timeScale().width()) return;
@@ -2428,7 +2528,7 @@ wrap.addEventListener('pointerdown', e=>{
     }
     if(!pendingDraw){
       const d = {type:drawTool, p1:p, p2:{...p}};
-      if(curColor && drawTool!=='fib') d.color = curColor;
+      if(drawTool!=='fib' && curColors[drawTool]) d.color = curColors[drawTool];
       drawings.push(d); selDraw = d;
       pendingDraw = {d, startX:x, startY:y};
     }else{
@@ -2482,7 +2582,7 @@ window.addEventListener('pointermove', e=>{
     e.preventDefault(); e.stopPropagation();
   }else if(drawDrag){
     const d = drawDrag.d;
-    if(drawDrag.part==='move'){
+    if(drawDrag.part==='move' || drawDrag.part==='body'){
       const a = xy2pt(drawDrag.last.x, drawDrag.last.y);
       const b = xy2pt(x, y);
       if(a && b){
@@ -2491,13 +2591,17 @@ window.addEventListener('pointermove', e=>{
         if(d.p2) d.p2 = {t:d.p2.t+dt, p:d.p2.p+dp};
         drawDrag.last = {x,y};
       }
+    }else if(d.type==='rect' && RECT_CURSOR[drawDrag.part]){
+      const p = xy2pt(x,y);
+      if(p) drawDrag.part = dragRectEdge(d, drawDrag.part, p);
     }else{
       const p = xy2pt(x,y);
       if(p) d[drawDrag.part] = p;
     }
     e.preventDefault(); e.stopPropagation();
   }else if(!tool && !drawTool){
-    wrap.style.cursor = hitTest(x,y) ? 'ns-resize' : (hitDrawing(x,y) ? 'pointer' : '');
+    const hd = hitTest(x,y) ? null : hitDrawing(x,y);
+    wrap.style.cursor = hitTest(x,y) ? 'ns-resize' : (hd ? (hd.d.type==='rect' ? RECT_CURSOR[hd.part] : 'pointer') : '');
   }
 }, true);
 window.addEventListener('pointerup', e=>{
@@ -2519,9 +2623,14 @@ window.addEventListener('pointerup', e=>{
   }
 }, true);
 
+// スマホ：描いている最中・描画や TP/SL をつかんでいる最中は、チャートが一緒にスクロールしないようにする
+['touchstart','touchmove'].forEach(ev=> wrap.addEventListener(ev, e=>{
+  if((drawTool || pendingDraw || drawDrag || drag) && !e.target.closest('#declPill') && !e.target.closest('#gamePill')) e.stopPropagation();
+}, {capture:true, passive:true}));
+
 // ダブルクリックで長方形内テキストの入力・編集（テキスト単体も編集可）
 wrap.addEventListener('dblclick', e=>{
-  if(e.target === ie || e.target.closest('#mFabRow')) return;
+  if(e.target === ie || e.target.closest('#mFabRow') || e.target.closest('#palette') || e.target.closest('#declPill') || e.target.closest('#gamePill')) return;
   const rc = wrap.getBoundingClientRect();
   const x = e.clientX-rc.left, y = e.clientY-rc.top;
   if(x > chart.timeScale().width()) return;
@@ -3616,7 +3725,7 @@ $('planCancel').onclick = ()=>{ $('planModal').hidden = true; cancelPosition(); 
 function sgSnapshot(i){
   const st = SG_STYLES[sgProfile.style];
   const c = candles[i];
-  const tClose = c.time + barSec();
+  const tClose = replayT != null ? replayT : c.time + barSec();
   const trend = sgTrend(st.htf, tClose) || {state:'range', why:'上位足を計算できない（データ不足）'};
   const zones = sgZones(c.time);
   return {i, time:c.time, close:c.close, open:c.open, atr:sgAtr(candles,i), trend, zones, tf:curTF,
@@ -3767,7 +3876,7 @@ function sgAfterClose(t){ if(t && t.fb && $('fbAuto').checked) sgShowFeedback(t)
 
 // モーダル表示中はチャートのショートカットを止める
 document.addEventListener('keydown', e=>{
-  const open = !$('fbModal').hidden || !$('planModal').hidden || !$('setupModal').hidden;
+  const open = !$('fbModal').hidden || !$('planModal').hidden || !$('setupModal').hidden || ($('biasModal') && !$('biasModal').hidden);
   if(!open) return;
   if(e.target.tagName==='INPUT' && e.target.type!=='checkbox') return;
   e.stopImmediatePropagation();
@@ -3874,5 +3983,620 @@ if(!sgProfile) sgOpenSetup();
 if(EMB && embHas($('symbol').value.trim().toUpperCase())) $('loadBtn').click();
 else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キー不要）';
 </script>
+<!-- ==================== 自分のバイアス（相場の状態 × 作戦）／エントリー確認／採点／ゲーム ==================== -->
+<style>
+  #biasModal .sheet{width:min(880px,100%);padding:22px 24px 0}
+  #biasModal h2{font-size:19px}
+  .bq{display:grid;grid-template-columns:28px 1fr;gap:0 12px;padding:16px 0;border-top:1px solid var(--line)}
+  .bq:first-of-type{border-top:none}
+  .bq .qn{font-family:var(--score);font-size:22px;font-weight:700;color:var(--accent);line-height:1.1;text-align:center}
+  .bq h3{font-size:14px;font-weight:600;margin-bottom:4px}
+  .bq .bqsub{font-size:11.5px;color:var(--muted);margin-bottom:10px}
+
+  /* 1. 時間足 */
+  .tfrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tfbox{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .tfbox small{font-size:10.5px;color:var(--muted)}
+  .tfSel{appearance:none;-webkit-appearance:none;width:76px;height:46px;text-align:center;text-align-last:center;
+         font-family:var(--score);font-size:24px;font-weight:700;color:var(--accent);
+         background:var(--panel2);border:1.5px solid rgba(232,179,75,.55);border-radius:10px;padding:0 4px;cursor:pointer}
+  .tfSel option{font-family:'IBM Plex Sans JP',sans-serif;font-size:14px;color:var(--text);background:var(--panel)}
+  .tfarrow{color:var(--muted);font-size:16px;margin-bottom:16px}
+  .tfrow .seg{margin-left:auto;margin-bottom:16px}
+  .tfrow .seg button{font-size:12px;padding:6px 10px}
+
+  /* 2. 方向の決め方 */
+  .modes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .mode{text-align:left;padding:10px 12px;border-radius:10px;background:var(--panel2);display:flex;flex-direction:column;gap:3px}
+  .mode b{font-size:13px}
+  .mode small{font-size:11.5px;color:var(--muted);line-height:1.5}
+  .mode[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+  .mode[aria-pressed="true"] b{color:var(--accent)}
+  .mode .rec{font-size:10px;color:#1b1a27;background:var(--accent);border-radius:4px;padding:0 5px;margin-left:6px;font-weight:600}
+
+  /* 3. 作戦表 */
+  .plays{display:grid;grid-template-columns:auto 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .plays .env{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:13px;font-weight:600;background:#1f1d30;border-top:1px solid var(--line)}
+  .plays .env i{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .plays .acts{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-top:1px solid var(--line);align-items:center}
+  .plays .env:first-child,.plays .env:first-child+.acts{border-top:none}
+  .env.up i{background:var(--up)} .env.down i{background:var(--down)} .env.range i{background:#9aa0ae}
+  .chip{font-size:12px;padding:6px 11px;border-radius:999px;background:var(--panel2);color:var(--muted)}
+  .chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+  .chip.skip[aria-pressed="true"]{background:#2a2840;border-color:#6b6688;color:var(--text)}
+  .bkrow{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+  .bkrow label{font-size:12px;color:var(--muted)}
+  .fsel{padding:7px 28px 7px 10px;font-size:12.5px;appearance:none;-webkit-appearance:none;
+        background:var(--panel2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238d89a6' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 10px center}
+  .note{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.6}
+
+  /* 5. RR */
+  .rr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  .rr .fld{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .rr .fld label{font-size:11px;color:var(--muted)}
+  .rr .fsel{width:100%}
+
+  /* ルール文 */
+  .bz-rule{margin:4px 0 0;padding:14px 16px 14px 18px;border-radius:10px;background:#16151f;border:1px solid var(--line);border-left:3px solid var(--accent)}
+  .bz-rule h4{margin:0 0 8px;font-size:12px;color:var(--accent);font-weight:600}
+  .bz-rule ul{margin:0;padding-left:18px;font-size:12.5px;line-height:1.85}
+  .bz-rule b{color:var(--accent);font-weight:600}
+  .bz-rule .u{color:var(--up)} .bz-rule .d{color:var(--down)} .bz-rule .r{color:#b7bccb}
+  #biasModal .actions{position:sticky;bottom:0;margin:16px -24px 0;padding:12px 24px;background:var(--panel);border-top:1px solid var(--line)}
+
+  /* 本画面：4Hの宣言（PC＝右パネル、スマホ＝チャート左上） */
+  #declBox{padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  #declBox .hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  #declBox .hd b{font-size:12px;color:var(--muted);font-weight:500}
+  #declBox .hd span{font-size:10.5px;color:var(--muted)}
+  .declSeg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+  .declSeg button{padding:7px 0;font-size:12.5px;font-weight:600;color:var(--muted)}
+  .declSeg button[data-s="up"].on{background:rgba(38,166,154,.18);border-color:var(--up);color:var(--up)}
+  .declSeg button[data-s="down"].on{background:rgba(239,83,80,.18);border-color:var(--down);color:var(--down)}
+  .declSeg button[data-s="range"].on{background:rgba(154,160,174,.18);border-color:#9aa0ae;color:#d5d8e0}
+  #declPlays{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.6}
+  #declPlays b{color:var(--text);font-weight:600}
+  #declPill{display:none}
+  /* ゲーム */
+  #gameBox{padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  #gameBox .gtop{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+  #gameBox .gtop b{font-family:var(--score);font-size:22px;font-weight:700;color:var(--accent);line-height:1}
+  #gameBox .gtop span{font-size:11.5px;color:var(--muted)}
+  #gameMsg{font-size:12px;line-height:1.6;color:var(--text)}
+  #gameMsg .res{font-weight:600}
+  #gameBox .gbtns{display:flex;gap:6px;margin-top:10px}
+  #gameBox .gbtns button{flex:1}
+  body.game-mode #replayBox .rc{display:none!important}
+  #gamePill{display:none}
+  #fbActions2{display:none}
+  body.game-mode #fbActions2{display:inline-flex}
+  body.game-mode #fbModal .actions .chk{display:none}   /* ゲーム中は毎回表示するので不要 */
+  body.game-ended #mLongBtn, body.game-ended #mShortBtn, body.game-ended #toolLong, body.game-ended #toolShort{opacity:.3;pointer-events:none}
+  /* エントリー時の確認（作戦表に合わせる） */
+  .ep-decl{display:flex;align-items:center;gap:10px;margin:2px 0 12px;flex-wrap:wrap}
+  .ep-decl>span{font-size:12.5px;font-weight:600}
+  .ep-decl .declSeg{flex:1;min-width:220px}
+  .ep-hint{font-size:12px;color:var(--muted);margin:4px 0 10px}
+  .ep-warn{font-size:12.5px;line-height:1.7;color:var(--down);background:rgba(239,83,80,.08);border:1px solid rgba(239,83,80,.35);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  #planList .ep-decl .declSeg button{justify-content:center;padding:7px 0}
+  #planList button.play b{font-weight:600}
+  #planList button.play small{color:var(--muted)}
+  #planList button.ng{color:var(--down);border-color:rgba(239,83,80,.45)}
+  .ep-sig{font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.7;border-top:1px dashed var(--line);padding-top:10px}
+  .ep-sig b{color:var(--text);font-weight:600}
+
+  @media (max-width:760px){
+    #biasModal{padding:0}
+    #biasModal .sheet{width:100%;height:100%;max-height:100%;border-radius:0;border:none;padding:16px 14px 0}
+    #biasModal .actions{margin:16px -14px 0;padding:10px 14px max(10px, env(safe-area-inset-bottom))}
+    .bq{grid-template-columns:22px 1fr;gap:0 8px}
+    .modes{grid-template-columns:1fr}
+    .plays{grid-template-columns:1fr}
+    .plays .env{padding:8px 12px}
+    .plays .acts{border-top:none;padding:0 12px 10px}
+    .rr{grid-template-columns:1fr 1fr}
+    .rr .fld.sl{grid-column:1/-1;order:3}
+    .tfrow .seg{margin-left:0}
+    .tfSel{width:66px;height:42px;font-size:21px}
+    /* チャート左上の宣言ボタン */
+    #declPill{display:flex;position:absolute;top:8px;left:8px;z-index:6;gap:3px;padding:3px;border-radius:10px;background:rgba(27,26,39,.92);border:1px solid var(--line)}
+    #declPill button{padding:5px 9px;font-size:12px;font-weight:600;border-radius:7px;border-color:transparent;background:none;color:var(--muted)}
+    #declPill .lbl{font-family:var(--score);font-size:14px;font-weight:700;color:var(--accent);padding:4px 4px 0 5px}
+    #ohlc{top:46px}
+    /* スマホ：チャート右上にゲーム番号と［見送る／次へ］ */
+    #gamePill{display:none;position:absolute;top:8px;right:8px;z-index:6;align-items:center;gap:6px;padding:3px 3px 3px 10px;border-radius:10px;background:rgba(27,26,39,.92);border:1px solid var(--line)}
+    body.game-mode #gamePill{display:flex}
+    #gamePill b{font-family:var(--score);font-size:15px;color:var(--accent)}
+    #gamePill button{padding:5px 10px;font-size:12px;font-weight:600;border-radius:7px}
+    #gamePill button.primary{color:#1b1a27}
+  }
+  @media (max-height:500px) and (min-width:761px){
+    #declPill{display:flex;position:absolute;top:8px;left:8px;z-index:6;gap:3px;padding:3px;border-radius:10px;background:rgba(27,26,39,.92);border:1px solid var(--line)}
+    #declPill button{padding:5px 9px;font-size:12px;font-weight:600;border-radius:7px;border-color:transparent;background:none;color:var(--muted)}
+    #declPill .lbl{font-family:var(--score);font-size:14px;font-weight:700;color:var(--accent);padding:4px 4px 0 5px}
+    #ohlc{top:46px}
+    #gamePill{position:absolute;top:8px;right:8px;z-index:6;align-items:center;gap:6px;padding:3px 3px 3px 10px;border-radius:10px;background:rgba(27,26,39,.92);border:1px solid var(--line)}
+    body.game-mode #gamePill{display:flex}
+    #gamePill b{font-family:var(--score);font-size:15px;color:var(--accent)}
+    #gamePill button{padding:5px 10px;font-size:12px;font-weight:600;border-radius:7px}
+    #gamePill button.primary{color:#1b1a27}
+    #declBox, #gameBox{display:none!important}
+  }
+</style>
+
+<div class="modal" id="biasModal" hidden>
+  <div class="sheet" role="dialog" aria-labelledby="bzTitle">
+    <h2 id="bzTitle">自分のバイアスを作る</h2>
+    <p class="lead" style="margin-bottom:6px">相場の状態ごとに、何を狙うかを決めます。</p>
+
+    <section class="bq">
+      <div class="qn">1</div>
+      <div>
+        <h3>どの足で見る？</h3>
+        <p class="bqsub">左から、相場の状態を見る足 → 作戦を探す足 → 入る足。</p>
+        <div class="tfrow" id="bzTfRow"></div>
+      </div>
+    </section>
+
+    <section class="bq">
+      <div class="qn">2</div>
+      <div>
+        <h3><span class="tfname" data-r="0"></span>の相場は、どう決める？</h3>
+        <div class="modes" id="bzModes">
+          <button type="button" class="mode" data-m="declare"><b>自分で宣言する<span class="rec">おすすめ</span></b><small>チャートを見て「上昇・下降・レンジ」をワンタップで選びます。実際のトレードと同じやり方です。</small></button>
+          <button type="button" class="mode" data-m="auto"><b>シンプルな自動判定</b><small>直近の高値を更新したら上昇、安値を更新したら下降、どちらでもなければレンジ。</small></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="bq">
+      <div class="qn">3</div>
+      <div>
+        <h3>相場ごとに、<span class="tfname" data-r="1"></span>で何を狙う？</h3>
+        <p class="bqsub">複数選べます。何も選ばない相場は「見送る」になります。</p>
+        <div class="plays" id="bzPlays"></div>
+        <div class="bkrow" id="bzBkRow">
+          <label for="bzBk">ブレイクの入り方</label>
+          <select id="bzBk" class="fsel"><option value="close">抜けた足の確定で入る</option><option value="retest">抜けた後の戻り（リテスト）を待つ</option></select>
+        </div>
+        <p class="note">トレンド中の逆張り（上昇中の売り、下降中の買い）は選べません。レンジは、ブレイクしたらその方向のトレンドとして扱います。</p>
+      </div>
+    </section>
+
+    <section class="bq">
+      <div class="qn">4</div>
+      <div>
+        <h3>何が出たら入る？（<span class="tfname" data-r="2"></span>の確定足）</h3>
+        <p class="bqsub">どれか1つ出ればOK。確定する前に入るのは違反です。</p>
+        <div class="chips" id="bzTrig" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+    </section>
+
+    <section class="bq">
+      <div class="qn">5</div>
+      <div>
+        <h3>損切りと利確</h3>
+        <div class="rr">
+          <div class="fld"><label for="bzRR">最低RR（未満は入らない）</label><select id="bzRR" class="fsel"><option value="1">1 : 1</option><option value="1.5">1 : 1.5</option><option value="2" selected>1 : 2</option><option value="3">1 : 3</option></select></div>
+          <div class="fld sl"><label for="bzSL">SL</label><select id="bzSL" class="fsel"><option value="swing">直近の安値（高値）の外</option><option value="trig">合図の足の外</option></select></div>
+          <div class="fld"><label for="bzTP">TP</label><select id="bzTP" class="fsel"><option value="2r">2R</option><option value="3r">3R</option><option value="next">次の高値（安値）の手前</option></select></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="bz-rule" aria-live="polite">
+      <h4>このバイアスのルール</h4>
+      <ul id="bzRule"></ul>
+    </div>
+
+    <div class="actions">
+      <button id="bzCancel" class="ghost">閉じる</button>
+      <button id="bzSave" class="primary">この設定で始める</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const TFS = [['1d','D'],['4h','4H'],['1h','1H'],['30m','30M'],['15m','15M'],['5m','5M']];   // 1分足はデータ未収録のため未対応
+  const TF_JA = {'1d':'日足','4h':'4時間足','1h':'1時間足','30m':'30分足','15m':'15分足','5m':'5分足','1m':'1分足'};
+  const tfi = tf => TFS.findIndex(t=>t[0]===tf);
+  const ENVS = [
+    {k:'up',    name:'上昇', acts:[['pull','押し目で買う'],['brk','高値ブレイクで買う'],['skip','見送る']]},
+    {k:'down',  name:'下降', acts:[['pull','戻りで売る'],['brk','安値ブレイクで売る'],['skip','見送る']]},
+    {k:'range', name:'レンジ', acts:[['fade','下限で買い・上限で売る'],['wait','ブレイクを待つ'],['fake','だまし（ヒゲで抜けて戻る）を狙う'],['skip','見送る']]},
+  ];
+  const TRIGS = [['engulf','包み足'],['pin','ピンバー'],['strong','強い実体足']];
+  const B = {
+    n:3, tfs:['4h','1h','15m'], mode:'declare',
+    plays:{up:['pull','brk'], down:['pull','brk'], range:['fade','wait']},
+    bk:'retest', trig:['engulf','pin','strong'], rr:'2', sl:'swing', tp:'2r',
+  };
+  let decl = null;   // 今の宣言（up/down/range）
+
+  // 2段階のときは「作戦の足」と「入る足」が同じ
+  const tfAt = r => B.n===2 ? B.tfs[Math.min(r,1)] : B.tfs[r];
+  const actName = (env,a) => ENVS.find(e=>e.k===env).acts.find(x=>x[0]===a)[1];
+
+  function renderTf(){
+    const roles = B.n===2 ? ['相場の状態','作戦＋入る'] : ['相場の状態','作戦','入る'];
+    $('bzTfRow').innerHTML = roles.map((r,i)=>{
+      const prev = i ? tfi(B.tfs[i-1]) : -1;
+      const opts = TFS.map(([v,t],j)=>`<option value="${v}"${j<prev?' disabled':''}${B.tfs[i]===v?' selected':''}>${t}</option>`).join('');
+      return (i?'<span class="tfarrow" aria-hidden="true">→</span>':'') +
+        `<div class="tfbox"><select class="tfSel" data-i="${i}" aria-label="${r}の足">${opts}</select><small>${r}</small></div>`;
+    }).join('') + `<div class="seg" id="bzCount" role="group" aria-label="段階の数"><button data-n="2"${B.n===2?' class="on"':''}>2段</button><button data-n="3"${B.n===3?' class="on"':''}>3段</button></div>`;
+    document.querySelectorAll('.tfname').forEach(el=> el.textContent = TF_JA[tfAt(+el.dataset.r)]);
+  }
+  function render(){
+    renderTf();
+    document.querySelectorAll('#bzModes .mode').forEach(b=>b.setAttribute('aria-pressed', b.dataset.m===B.mode));
+    $('bzPlays').innerHTML = ENVS.map(e=>`<div class="env ${e.k}"><i></i>${e.name}</div><div class="acts">${
+      e.acts.map(([a,t])=>`<button type="button" class="chip${a==='skip'?' skip':''}" data-env="${e.k}" data-a="${a}" aria-pressed="${B.plays[e.k].includes(a) || (a==='skip' && !B.plays[e.k].length)}">${t}</button>`).join('')}</div>`).join('');
+    $('bzBkRow').hidden = !(B.plays.up.includes('brk') || B.plays.down.includes('brk') || B.plays.range.includes('wait'));
+    $('bzBk').value = B.bk; $('bzRR').value = B.rr; $('bzSL').value = B.sl; $('bzTP').value = B.tp;
+    $('bzTrig').innerHTML = TRIGS.map(([v,t])=>`<button type="button" class="chip" data-t="${v}" aria-pressed="${B.trig.includes(v)}">${t}</button>`).join('');
+    $('bzSave').disabled = !B.trig.length;
+    renderRule();
+  }
+  function renderRule(){
+    const T = r => `<b>${TF_JA[tfAt(r)]}</b>`;
+    const li = [];
+    li.push(B.mode==='declare'
+      ? `${T(0)}を見て、相場を「上昇・下降・レンジ」から自分で宣言する。`
+      : `${T(0)}の相場はツールが決める：直近の高値を更新したら上昇、安値を更新したら下降、どちらでもなければレンジ。`);
+    const bk = B.bk==='retest' ? 'ブレイクは戻りを待って入る。' : 'ブレイクは抜けた足の確定で入る。';
+    for(const e of ENVS){
+      const acts = B.plays[e.k].filter(a=>a!=='skip');
+      const cls = {up:'u',down:'d',range:'r'}[e.k];
+      let s = acts.length ? `${T(1)}で「${acts.map(a=>actName(e.k,a)).join('」「')}」。` : '見送る（入らない）。';
+      if(acts.includes('brk') || acts.includes('wait')) s += bk;
+      if(e.k==='range' && acts.includes('wait')) s += '抜けたら、その方向のトレンドとして扱う。';
+      li.push(`<span class="${cls}">${e.name}</span>：${s}`);
+    }
+    li.push(B.trig.length ? `${T(2)}で${B.trig.map(t=>TRIGS.find(x=>x[0]===t)[1]).join('・')}のどれかが確定してから入る。確定前は違反。` : `<span style="color:var(--down)">入る合図が選ばれていません。</span>`);
+    li.push(`SLは${$('bzSL').selectedOptions[0].text}、TPは${$('bzTP').selectedOptions[0].text}。計画RRが${$('bzRR').selectedOptions[0].text}未満なら入らない。`);
+    $('bzRule').innerHTML = li.map(s=>`<li>${s}</li>`).join('');
+  }
+
+  // 操作
+  $('bzTfRow').addEventListener('change', e=>{
+    const t = e.target; if(!t.classList.contains('tfSel')) return;
+    const i = +t.dataset.i; B.tfs[i] = t.value;
+    for(let j=i+1;j<B.tfs.length;j++) if(tfi(B.tfs[j]) < tfi(B.tfs[j-1])) B.tfs[j] = B.tfs[j-1];
+    render();
+  });
+  $('bzTfRow').addEventListener('click', e=>{
+    const b = e.target.closest('#bzCount button'); if(!b) return;
+    B.n = +b.dataset.n;
+    B.tfs = B.n===2 ? B.tfs.slice(0,2) : [B.tfs[0], B.tfs[1], B.tfs[2] || B.tfs[1]];
+    render();
+  });
+  $('bzModes').addEventListener('click', e=>{ const b = e.target.closest('.mode'); if(!b) return; B.mode = b.dataset.m; render(); syncDecl(); });
+  $('bzPlays').addEventListener('click', e=>{
+    const c = e.target.closest('.chip'); if(!c) return;
+    const env = c.dataset.env, a = c.dataset.a, cur = new Set(B.plays[env]);
+    if(a==='skip'){ B.plays[env] = []; }
+    else { cur.has(a) ? cur.delete(a) : cur.add(a); cur.delete('skip');
+           B.plays[env] = ENVS.find(x=>x.k===env).acts.map(x=>x[0]).filter(x=>cur.has(x)); }
+    render(); syncDecl();
+  });
+  $('bzTrig').addEventListener('click', e=>{
+    const c = e.target.closest('.chip'); if(!c) return;
+    const s = new Set(B.trig); s.has(c.dataset.t) ? s.delete(c.dataset.t) : s.add(c.dataset.t);
+    B.trig = TRIGS.map(x=>x[0]).filter(x=>s.has(x)); render();
+  });
+  const SEL_KEY = {bzBk:'bk', bzRR:'rr', bzSL:'sl', bzTP:'tp'};
+  Object.keys(SEL_KEY).forEach(id=> $(id).addEventListener('change', ()=>{ B[SEL_KEY[id]] = $(id).value; renderRule(); }));
+
+  // ---------- 本画面：4Hの宣言 ----------
+  const declHtml = `<div id="declBox"><div class="hd"><b id="declTitle"></b><span>見て決めたら押す</span></div>
+      <div class="declSeg" role="group" aria-label="相場の宣言"><button data-s="up">上昇</button><button data-s="down">下降</button><button data-s="range">レンジ</button></div>
+      <div id="declPlays"></div></div>`;
+  $('profileBar').insertAdjacentHTML('afterend', declHtml);
+  $('chartWrap').insertAdjacentHTML('beforeend', `<div id="declPill" role="group" aria-label="相場の宣言"><span class="lbl" id="declPillTf"></span><button data-s="up">上昇</button><button data-s="down">下降</button><button data-s="range">レンジ</button></div>`);
+  function syncDecl(){
+    const show = B.mode==='declare';
+    $('declBox').hidden = !show;
+    $('declPill').style.visibility = show ? '' : 'hidden';
+    const tfShort = TFS[tfi(B.tfs[0])][1];
+    $('declTitle').textContent = `今の${tfShort}は？`;
+    $('declPillTf').textContent = tfShort;
+    document.querySelectorAll('#declBox .declSeg button, #declPill button').forEach(b=>{
+      const on = b.dataset.s===decl; b.classList.toggle('on', on);
+      if(b.closest('#declPill')){
+        const col = {up:'var(--up)',down:'var(--down)',range:'#d5d8e0'}[b.dataset.s], bg = {up:'rgba(38,166,154,.2)',down:'rgba(239,83,80,.2)',range:'rgba(154,160,174,.2)'}[b.dataset.s];
+        b.style.color = on ? col : ''; b.style.background = on ? bg : '';
+      }
+    });
+    if(!decl){ $('declPlays').innerHTML = 'まだ宣言していません。エントリーの時にも選べます。'; return; }
+    const acts = B.plays[decl].filter(a=>a!=='skip');
+    $('declPlays').innerHTML = acts.length ? `狙える：<b>${acts.map(a=>actName(decl,a)).join('／')}</b>` : '<b>見送り</b>（この相場では入らない）';
+  }
+  document.addEventListener('click', e=>{
+    const b = e.target.closest('#declBox .declSeg button, #declPill button'); if(!b) return;
+    decl = b.dataset.s; syncDecl();
+  });
+  // パレット等と同じく、宣言ボタンを押してもチャート側の操作にしない
+  $('declPill').addEventListener('pointerdown', e=>e.stopPropagation());
+
+  // ---------- エントリー時の確認：設定した作戦表から選ぶ ----------
+  // 方向（買い／売り）と相場の状態で、作戦表のうち使えるものだけを出す
+  const PLAY_FOR = {
+    up:    {long:{pull:'押し目で買う', brk:'高値ブレイクで買う'}, short:{}},
+    down:  {short:{pull:'戻りで売る', brk:'安値ブレイクで売る'}, long:{}},
+    range: {long:{fade:'下限で買う', wait:'上に抜けたので買う（ブレイク）', fake:'下へのだましの後に買う'},
+            short:{fade:'上限で売る', wait:'下に抜けたので売る（ブレイク）', fake:'上へのだましの後に売る'}},
+  };
+  const ENV_JA = {up:'上昇', down:'下降', range:'レンジ'};
+  let biasSaved = false;
+  function renderEntryPlan(){
+    if(!pos || !pos.plan) return;
+    const side = pos.side, sideJa = side==='long' ? '買い' : '売り';
+    const tfS = TFS[tfi(B.tfs[0])][1];
+    $('planTitle').textContent = 'どの作戦で入りますか？';
+    $('planLead').textContent = `${sideJa} @ ${fmtP(pos.entry)}　SL/TPはあとからドラッグで調整できます。`;
+    const state = B.mode==='declare' ? decl : (pos.plan.ctx && pos.plan.ctx.trend ? pos.plan.ctx.trend.state : null);
+    let h = '';
+    if(B.mode==='declare'){
+      h += `<div class="ep-decl"><span>今の${tfS}は？</span><div class="declSeg" role="group" aria-label="相場の宣言">${
+        ['up','down','range'].map(k=>`<button type="button" data-ep="${k}" class="${decl===k?'on':''}" data-s="${k}">${ENV_JA[k]}</button>`).join('')}</div></div>`;
+    }else{
+      h += `<p class="ep-hint">${tfS}の判定（自動）：<b>${state ? ENV_JA[state] : '—'}</b></p>`;
+    }
+    if(!state){
+      h += `<p class="ep-hint">相場を選ぶと、この${sideJa}で使える作戦が出ます。</p>`;
+    }else{
+      const allowed = B.plays[state].filter(a=>a!=='skip' && PLAY_FOR[state][side][a]);
+      if(!allowed.length){
+        const why = !B.plays[state].length ? `${ENV_JA[state]}は「見送る」にしています。` :
+                    (state==='up' && side==='short') ? '上昇中の売りは逆張りなので、作戦表にありません。' :
+                    (state==='down' && side==='long') ? '下降中の買いは逆張りなので、作戦表にありません。' :
+                    `${ENV_JA[state]}での${sideJa}は、作戦表で選んでいません。`;
+        h += `<div class="ep-warn">${ENV_JA[state]}と${B.mode==='declare'?'宣言':'判定'}しています。${why}<br>入るなら、ルール違反として記録されます。</div>`;
+      }
+      h += allowed.map(a=>`<button class="play" data-play="${a}"><b>${PLAY_FOR[state][side][a]}</b><small>${ENV_JA[state]}・${TF_JA[tfAt(1)]}</small></button>`).join('');
+    }
+    h += `<button class="none${state && !B.plays[state].filter(a=>a!=='skip' && PLAY_FOR[state][side][a]).length ? ' ng':''}" data-play="">作戦外で入る（ルール違反として記録）</button>`;
+    const trig = B.trig.map(t=>TRIGS.find(x=>x[0]===t)[1]).join('・');
+    h += `<p class="ep-sig">このバイアスの合図：<b>${TF_JA[tfAt(2)]}で${trig}が確定してから</b>／最低RR <b>1:${B.rr}</b>${B.plays.up.includes('brk')||B.plays.down.includes('brk')||B.plays.range.includes('wait') ? `／ブレイクは<b>${B.bk==='retest'?'戻りを待つ':'抜けた足の確定'}</b>` : ''}</p>`;
+    $('planList').innerHTML = h;
+    $('planList').querySelectorAll('[data-ep]').forEach(b=> b.onclick = ()=>{ decl = b.dataset.ep; syncDecl(); renderEntryPlan(); });
+    $('planList').querySelectorAll('[data-play]').forEach(b=> b.onclick = ()=>{
+      if(pos && pos.plan){ pos.plan.pid = null; pos.plan.play = {state, side, play:b.dataset.play || null}; }
+      $('planModal').hidden = true;
+    });
+  }
+  // 元のエントリー処理を使ったうえで、SL/TP をバイアスで置き直し、確認画面の中身を差し替える
+  const _sgOnOpen = sgOnOpen;
+  sgOnOpen = function(){
+    if(!biasSaved) return _sgOnOpen();
+    if(!sgProfile) sgProfile = {style:'swing', patterns:[]};
+    _sgOnOpen();
+    if(pos && !pos.auto) applyBiasSLTP();
+    renderEntryPlan();
+  };
+  // SL：直近の安値（高値）の外／合図の足の外。TP：2R／3R／直近の高値（安値）の手前
+  function applyBiasSLTP(){
+    const i = idx, c = candles[i], atr = sgAtr(candles, i), L = pos.side==='long', dir = L ? 1 : -1;
+    let sl;
+    if(B.sl==='trig') sl = L ? c.low - atr*0.2 : c.high + atr*0.2;
+    else { const look = candles.slice(Math.max(0, i-10), i+1); sl = L ? Math.min(...look.map(b=>b.low)) - atr*0.2 : Math.max(...look.map(b=>b.high)) + atr*0.2; }
+    if(L ? sl >= pos.entry : sl <= pos.entry) sl = pos.entry - dir*atr;
+    const risk = Math.abs(pos.entry - sl);
+    let tp = pos.entry + dir*risk*(B.tp==='3r' ? 3 : 2);
+    if(B.tp==='next'){
+      const look = candles.slice(Math.max(0, i-60), i+1);
+      const ext = L ? Math.max(...look.map(b=>b.high)) : Math.min(...look.map(b=>b.low));
+      if(L ? ext > pos.entry : ext < pos.entry) tp = ext - dir*atr*0.1;
+    }
+    pos.sl = sl; pos.tp = tp;
+    pos.riskUsd = curEquity() * (((+$('riskPct').value)||1)/100);
+    pos.qty = pos.riskUsd / risk;
+    $('tpInput').value = fmtP(tp); $('slInput').value = fmtP(sl);
+    updatePosInfo();
+  }
+
+  // ---------- 決済後の採点：自分のバイアスで判定する ----------
+  const TRIG_JA = {engulf:'包み足', pin:'ピンバー', strong:'強い実体足'};
+  const _sgEvaluate = sgEvaluate;
+  sgEvaluate = function(p, t){
+    const P = p.plan;
+    if(!biasSaved || !P || P.play===undefined) return _sgEvaluate(p, t);
+    const X = P.ctx, side = p.side, sideJa = side==='long'?'買い':'売り';
+    if(!P.locked) P.locked = {sl:p.sl, tp:p.tp, risk:Math.abs(p.entry-p.sl)};
+    if(Math.abs(p.entry-p.sl) > P.locked.risk*1.0005) P.slWidened = true;
+    const risk = P.locked.risk, items = [];
+    const add = (id, req, label, ok, msg) => items.push({id, req, label, ok, msg});
+    const pl = P.play, st = pl.state, tfS = TFS[tfi(B.tfs[0])][1];
+
+    // B-1 相場を決めてから入った
+    if(B.mode==='declare') add('B-1', true, '相場を決めてから入った', !!st,
+      st ? `${tfS}を「${ENV_JA[st]}」と宣言して入っています。` : `${tfS}の相場を決めずに入っています。先に「上昇・下降・レンジ」を決めましょう。`);
+    // B-2 作戦表どおり
+    const allowed = st ? B.plays[st].filter(a=>a!=='skip' && PLAY_FOR[st][side][a]) : [];
+    const playOk = !!(st && pl.play && allowed.includes(pl.play));
+    add('B-2', true, '作戦表どおり', playOk,
+      playOk ? `${ENV_JA[st]}で「${PLAY_FOR[st][side][pl.play]}」。作戦表どおりです。`
+      : !st ? '相場が決まっていないので、作戦を選べていません。'
+      : (st==='up' && side==='short') || (st==='down' && side==='long') ? `${ENV_JA[st]}中の${sideJa}です。逆張りは作戦表にありません。`
+      : !B.plays[st].length ? `${ENV_JA[st]}は「見送る」にしています。入らない相場でした。`
+      : `作戦外で入っています。${ENV_JA[st]}での作戦：${allowed.map(a=>PLAY_FOR[st][side][a]).join('／') || 'なし'}。`);
+    // B-3 入る足で、合図を見てから入った
+    const etf = tfAt(2), want = B.trig.map(k=>TRIG_JA[k]);
+    const got = (side==='long' ? X.trigLong : X.trigShort).filter(x=>want.includes(x));
+    const nearClose = Math.abs(p.entry - X.close) <= X.atr*0.3;
+    const tfOk = P.tf===etf;
+    const sigOk = tfOk && got.length>0 && nearClose;
+    add('B-3', true, '合図を見てから入った', sigOk,
+      sigOk ? `${TF_JA[etf]}で${got.join('・')}が確定してから入っています。`
+      : !tfOk ? `${TF_JA[P.tf]||P.tf}で入っています。このバイアスの入る足は${TF_JA[etf]}です。`
+      : !got.length ? `${TF_JA[etf]}の合図（${want.join('・')}）が出る前に入っています。1本の確定を待ちましょう。`
+      : `合図（${got.join('・')}）は出ていますが、終値から離れた価格で入っています（先回りの指値）。`);
+    // B-4 最低RR
+    const minRR = +B.rr, planRR = risk>0 ? Math.abs(P.locked.tp-p.entry)/risk : 0;
+    const rrOk = planRR >= minRR - 0.005;
+    add('B-4', true, `リスクリワード 1:${B.rr}以上`, rrOk,
+      rrOk ? `計画RR 1:${planRR.toFixed(1)}。` : `計画RRが1:${planRR.toFixed(1)}です。1:${B.rr}取れない場所は見送りです。`);
+    // B-5 SL
+    add('B-5', true, 'SLを広げていない', !P.slWidened,
+      P.slWidened ? 'ポジションを持った後にSLを広げています。最初のSLが根拠のある位置でした。' : 'SLは最初の位置のまま（または縮めただけ）です。');
+    // B-6 リベンジ・連敗ストップ（同じ日）
+    const prev = trades.slice(0, -1).filter(x=>x.exitTime<=t.entryTime);
+    const etfSec = TF_SEC[P.tf] || barSec(), last = prev[prev.length-1];
+    const revenge = last && (last.pnlUsd||0)<0 && (t.entryTime-last.exitTime) <= 3*etfSec;
+    let streak = 0;
+    for(let k=prev.length-1;k>=0;k--){ if(sgEt(prev[k].entryTime).dayKey!==X.et.dayKey) break; if((prev[k].pnlUsd||0)<0) streak++; else break; }
+    const f6 = !revenge && streak<2;
+    add('B-6', true, 'リベンジ・連敗ストップ', f6,
+      revenge ? `損切りから${Math.round((t.entryTime-last.exitTime)/etfSec)}本で入り直しています。熱くなっていませんか。`
+      : streak>=2 ? `今日すでに${streak}連敗中でした。2連敗したら終了のルールです。` : '直前の負けに引っ張られた入り直しはありません。');
+    // B-7 伸びた利益を残せた（推奨）
+    const mfeR = risk>0 ? P.mfe/risk : 0;
+    if(mfeR>=2) add('B-7', false, '伸びた利益を残せた', t.r>=0.5,
+      t.r>=0.5 ? `最大${mfeR.toFixed(1)}Rまで伸び、${t.r.toFixed(1)}Rで決済。` : `最大${mfeR.toFixed(1)}Rまで伸びたのに${t.r.toFixed(1)}Rで終わっています。`);
+    else add('B-7', false, '伸びた利益を残せた', null, `最大${mfeR.toFixed(1)}R。2Rに届いていないので対象外。`);
+
+    const ruleOk = items.filter(x=>x.req).every(x=>x.ok);
+    const win = (t.pnlUsd||0) > 0;
+    return {style:P.style, pid:null, trend:X.trend.state, trendWhy:X.trend.why, items, ruleOk,
+            quad: ruleOk ? (win?'gw':'gl') : (win?'bw':'bl'), mfeR, div:X.div||null,
+            failed: items.filter(x=>x.ok===false).map(x=>x.id),
+            bias:{state:st, play:pl.play, side, toolState:X.trend.state}};
+  };
+  // フィードバックの見出し：スタイル名ではなく「自分のバイアス｜相場・作戦」
+  const _sgShowFeedback = sgShowFeedback;
+  sgShowFeedback = function(t){
+    _sgShowFeedback(t);
+    const fb = t && t.fb; if(!fb || !fb.bias) return;
+    const b = fb.bias, tfS = TFS[tfi(B.tfs[0])][1];
+    const playTxt = b.state && b.play ? `${ENV_JA[b.state]}・${PLAY_FOR[b.state][b.side][b.play]}` : '作戦外';
+    $('fbCtx').innerHTML = `自分のバイアス｜${playTxt}`
+      + `<br>${tfS}：${B.mode==='declare' ? `あなたの宣言＝<b>${b.state?ENV_JA[b.state]:'なし'}</b>／ツールの見立て（参考）＝${ENV_JA[b.toolState]||'—'}` : `自動判定＝<b>${ENV_JA[b.toolState]||'—'}</b>`}`
+      + `<br>RSIダイバージェンス：${fb.div ? `<b style="color:${fb.div.type==='bull'?'var(--up)':'var(--down)'}">${fb.div.type==='bull'?'Bull':'Bear'}</b>（エントリーの${fb.div.ago}本前に確定・参考）` : 'なし（直近10本）'}`;
+  };
+
+  // ==================== ゲーム ====================
+  // 1ゲーム＝ランダムな場面（バイアスの上位足の足の区切り）から始めて、1回だけ買いか売りで入り、決済したら終了
+  const G = {n:0, on:false, ended:false, skips:0, last:null};
+  $('declBox').insertAdjacentHTML('afterend', `<div id="gameBox" hidden><div class="gtop"><b id="gameNo"></b><span id="gameSub"></span></div>
+    <div id="gameMsg"></div>
+    <div class="gbtns"><button id="gSkip" title="この場面では入らずに、次のゲームへ">見送って次へ</button><button id="gNext" class="primary" hidden>次のゲームへ</button></div></div>`);
+  $('chartWrap').insertAdjacentHTML('beforeend', `<div id="gamePill"><b id="gamePillNo"></b><button id="gpSkip">見送る</button><button id="gpNext" class="primary" hidden>次へ</button></div>`);
+  $('gamePill').addEventListener('pointerdown', e=>e.stopPropagation());
+  // フィードバックに「チャートを見直す」を追加（ゲーム中だけ表示）
+  $('fbClose').insertAdjacentHTML('beforebegin', `<button id="fbActions2" class="ghost">チャートを見直す</button>`);
+
+  function renderGame(){
+    if(!G.on) return;
+    const tfS = TFS[tfi(B.tfs[0])][1];
+    $('gameNo').textContent = `ゲーム ${G.n}`;
+    $('gamePillNo').textContent = `G${G.n}`;
+    $('gameSub').textContent = `${tfS}から開始${G.skips?`｜見送り ${G.skips}回`:''}`;
+    const inPos = !!pos;
+    let msg;
+    if(G.ended && G.last){
+      const t = G.last, q = t.fb ? SG_QUAD[t.fb.quad].label : '';
+      msg = `ゲーム終了：<span class="res" style="color:${t.r>=0?'var(--up)':'var(--down)'}">${t.r>=0?'+':''}${t.r.toFixed(2)}R</span>${q?`（${q}）`:''}。チャートを見直したら次へ。`;
+    }else if(inPos) msg = 'ポジション保有中。決済したらゲーム終了です。';
+    else msg = `${tfS}の相場を決めて、合図が出たら買いか売りで1回だけ入ります。入れない場面なら見送ってOK。`;
+    $('gameMsg').innerHTML = msg;
+    $('gSkip').hidden = $('gpSkip').hidden = G.ended || inPos;
+    $('gNext').hidden = $('gpNext').hidden = !G.ended;
+    $('fbClose').textContent = G.ended ? '次のゲームへ（Enter）' : '続ける（Enter）';
+    document.body.classList.toggle('game-ended', G.ended);
+  }
+  async function newGame(){
+    if(pos) return;   // 保有中は次へ進めない
+    $('fbModal').hidden = true; $('planModal').hidden = true;
+    stopPlay();
+    // 描画・宣言は毎ゲームまっさら
+    drawings = []; selDraw = null; closedBoxes = [];
+    if(typeof histReset==='function') histReset();
+    decl = null;
+    G.n++; G.on = true; G.ended = false; G.last = null;
+    document.body.classList.add('game-mode'); $('gameBox').hidden = false;
+    // バイアスの上位足に切り替えてから、ランダムな足で開始
+    const top = B.tfs[0];
+    if(curTF !== top && TF_SEC[top]){
+      curTF = top;
+      document.querySelectorAll('#tfSeg button').forEach(x=>x.classList.toggle('on', x.dataset.v===top));
+      replayT = null; partial = null;
+      await reloadKeepReplay();
+    }
+    const n = candles.length;
+    const hist = Math.min(200, Math.floor(n*0.3)), fut = Math.min(120, Math.floor(n*0.2));
+    const i = hist + Math.floor(Math.random() * Math.max(1, n - hist - fut));
+    startReplayAt(i);
+    syncDecl(); renderGame();
+  }
+  // 1ゲーム1トレード：終わったゲームでは入れない
+  const _openAt = openAt;
+  openAt = function(side, entry){
+    if(G.on && G.ended){ renderGame(); return; }
+    const r = _openAt(side, entry);
+    renderGame();
+    return r;
+  };
+  // 決済＝ゲーム終了
+  const _sgAfterClose = sgAfterClose;
+  sgAfterClose = function(t){
+    if(G.on){ G.ended = true; G.last = t; renderGame(); if(t && t.fb) sgShowFeedback(t); return; }
+    _sgAfterClose(t);
+  };
+  // 見送り：その場面では入らずに次へ
+  const skip = ()=>{ if(!G.on || pos) return; G.skips++; newGame(); };
+  $('gSkip').onclick = skip; $('gpSkip').onclick = skip;
+  $('gNext').onclick = $('gpNext').onclick = ()=> newGame();
+  $('fbActions2').onclick = ()=>{ $('fbModal').hidden = true; };
+  $('fbClose').onclick = ()=>{ $('fbModal').hidden = true; if(G.on && G.ended) newGame(); };
+  // フィードバック表示中の Enter＝次のゲーム（Esc＝見直す）
+  window.addEventListener('keydown', e=>{
+    if($('fbModal').hidden || !G.on || !G.ended) return;
+    if(e.code==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); $('fbModal').hidden = true; newGame(); }
+  }, true);
+  // フィードバックの見出しにゲーム番号
+  const _sgShowFeedback2 = sgShowFeedback;
+  sgShowFeedback = function(t){
+    _sgShowFeedback2(t);
+    if(G.on) $('fbCtx').insertAdjacentHTML('afterbegin', `<b style="color:var(--accent)">ゲーム ${G.n} の結果</b><br>`);
+    renderGame();
+  };
+  window.bzGame = G;
+
+  function openBias(){ if(typeof stopPlay==='function') stopPlay(); render(); $('setupModal').hidden = true; $('biasModal').hidden = false; }
+  $('bzCancel').onclick = ()=>{ $('biasModal').hidden = true; };
+  function renderProfile(){
+    $('pfStyle').textContent = '自分のバイアス';
+    $('pfTf').textContent = B.tfs.slice(0,B.n).map(tf=>TFS[tfi(tf)][1]).join(' → ') + `｜最低RR 1:${B.rr}`;
+  }
+  $('bzSave').onclick = ()=>{
+    $('biasModal').hidden = true; biasSaved = true;
+    try{ localStorage.setItem('shadowtrading.bias', JSON.stringify(B)); }catch(e){}
+    renderProfile();
+    syncDecl();
+    if(!pos) newGame();   // 設定したら、ランダムな場面でゲーム開始（上位足から）
+  };
+  $('pfEdit').onclick = openBias;
+  window.bzOpen = openBias; window.bzSetDecl = s => { decl = s; syncDecl(); };
+  // 保存したバイアスがあれば、開いたらすぐゲーム開始。なければ設定画面を出す
+  try{
+    const sv = JSON.parse(localStorage.getItem('shadowtrading.bias') || 'null');
+    if(sv && Array.isArray(sv.tfs) && sv.plays){
+      Object.assign(B, sv);
+      B.tfs = B.tfs.map(tf=> tfi(tf) >= 0 ? tf : '5m');
+      biasSaved = true;
+    }
+  }catch(e){}
+  syncDecl();
+  if(biasSaved){
+    renderProfile();
+    $('setupModal').hidden = true;
+    const startWhenReady = (n=0)=>{ if(candles.length && !pos) newGame(); else if(n < 100) setTimeout(()=>startWhenReady(n+1), 100); };
+    startWhenReady();
+  }else openBias();
+})();
+</script>
+
 </body>
 </html>
