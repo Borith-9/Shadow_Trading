@@ -153,6 +153,14 @@
   #profileBar b{font-size:13px;color:var(--accent)}
   #pfTf{font-size:10.5px;color:var(--muted)}
   #pfEdit{font-size:11px;padding:4px 10px;white-space:nowrap}
+  #structBar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  #structBar>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+  #structBar b{font-size:12px}
+  #structSub{font-size:10.5px;color:var(--muted)}
+  #structBtn{flex:none;width:40px;height:22px;padding:0;border-radius:11px;position:relative;background:var(--panel2)}
+  #structBtn::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:left .15s}
+  #structBtn.on{background:var(--accent);border-color:var(--accent)}
+  #structBtn.on::after{left:21px;background:#1b1a27}
 
   /* ---- 4象限 ---- */
   #quad{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
@@ -484,6 +492,11 @@
     <div id="profileBar">
       <div><b id="pfStyle">未設定</b><span id="pfTf"></span></div>
       <button id="pfEdit">設定</button>
+    </div>
+    <!-- サポート：作戦の足の CHoCH／BOS を自動で描く -->
+    <div id="structBar">
+      <div><b>サポート：CHoCH／BOS</b><small id="structSub">作戦の足の、今の流れだけを自動で描く</small></div>
+      <button id="structBtn" class="sw" role="switch" aria-checked="true" aria-label="CHoCH／BOSの自動表示"></button>
     </div>
     <!-- スコアボード -->
     <div class="box" id="board">
@@ -2334,6 +2347,81 @@ function resetPosition(clearLog){
 
 // ---------- リスクリワードゾーン描画（TradingView風の緑/赤ボックス） ----------
 const cv = $('overlay'), ctx = cv.getContext('2d');
+// ---------- サポート：CHoCH／BOS（作戦の足で判定し、どの足に切り替えても同じ線を描く） ----------
+// 山・谷＝左右5本より高い（低い）足。直近の山（谷）を実体（終値）で抜けたら線を引く。
+// トレンドの向きが変わる抜けが CHoCH、同じ向きのままの抜けが BOS。表示は「今の流れ」だけ（最新の CHoCH とその後の BOS）。
+// 作戦の足が確定してから描く（未来の値動きは使わない）。
+const STRUCT_COLOR = '#e8b34b', STRUCT_PIVOT = 5;
+const TF_NAME = {'5m':'5分足','15m':'15分足','30m':'30分足','1h':'1時間足','4h':'4時間足','1d':'日足'};
+let showStruct = true;
+try{ showStruct = localStorage.getItem('shadowtrading.struct') !== '0'; }catch(e){}
+let structCache = null, structBusy = false;
+const structTf = ()=> (typeof window.bzStructTf === 'function' && window.bzStructTf()) || '1h';
+function buildStruct(arr, sec){
+  const L = STRUCT_PIVOT, ev = [];
+  let SH = null, SL = null, trend = null;
+  for(let i = 0; i < arr.length; i++){
+    const j = i - L;   // 足 i が確定した時点で、左右L本がそろった山・谷
+    if(j >= L){
+      let isH = true, isL = true;
+      for(let k = j-L; k <= j+L; k++){ if(arr[k].high > arr[j].high) isH = false; if(arr[k].low < arr[j].low) isL = false; }
+      if(isH) SH = {t:arr[j].time, p:arr[j].high, b:false};
+      if(isL) SL = {t:arr[j].time, p:arr[j].low,  b:false};
+    }
+    const c = arr[i];
+    if(SH && !SH.b && c.close > SH.p){ ev.push({k: trend==='down' ? 'CHoCH' : 'BOS', t1:SH.t, t2:c.time, p:SH.p, vis:c.time+sec}); trend = 'up';   SH.b = true; }
+    if(SL && !SL.b && c.close < SL.p){ ev.push({k: trend==='up'   ? 'CHoCH' : 'BOS', t1:SL.t, t2:c.time, p:SL.p, vis:c.time+sec}); trend = 'down'; SL.b = true; }
+  }
+  return ev;
+}
+// 今の時刻までに確定したもののうち、最新の CHoCH から先（なければ直近3本）
+function structFlow(){
+  const tf = structTf(), base = tfCache['5m'];
+  if(!base || !TF_SEC[tf]) return null;
+  const key = `${loadedSym}|${tf}|${base.length}|${base[base.length-1].time}`;
+  if(!structCache || structCache.key !== key){
+    if(!structBusy){
+      structBusy = true;
+      getTF(tf).then(arr=>{ structCache = {key, tf, ev: arr ? buildStruct(arr, TF_SEC[tf]) : []}; })
+               .finally(()=>{ structBusy = false; });
+      $('structSub').textContent = `作戦の足（${TF_NAME[tf]||tf}）の、今の流れだけを自動で描く`;
+    }
+    return null;
+  }
+  const now = replayT != null ? replayT : (idx >= 0 && candles[idx] ? candles[idx].time + tfSec() : null);
+  if(now == null) return null;
+  const ev = structCache.ev;
+  let lo = 0, hi = ev.length;   // vis <= now の件数
+  while(lo < hi){ const m = (lo+hi)>>1; if(ev[m].vis <= now) lo = m+1; else hi = m; }
+  let s = lo - 1;
+  while(s >= 0 && ev[s].k !== 'CHoCH') s--;
+  return ev.slice(s >= 0 ? s : Math.max(0, lo-3), lo);
+}
+function renderStruct(){
+  if(!showStruct || !candles.length || idx < 0) return;
+  const flow = structFlow(); if(!flow || !flow.length) return;
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle = STRUCT_COLOR;
+  ctx.lineWidth = 1.4;
+  ctx.font = '600 11px IBM Plex Sans JP';
+  ctx.textAlign = 'center';
+  for(const e of flow){
+    const a = pt2xy({t:e.t1, p:e.p}), b = pt2xy({t:e.t2, p:e.p});
+    if(!a || !b) continue;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    ctx.fillText(e.k, (a.x+b.x)/2, a.y - 6);
+  }
+  ctx.restore();
+}
+$('structBtn').classList.toggle('on', showStruct);
+$('structBtn').setAttribute('aria-checked', showStruct);
+$('structBtn').onclick = ()=>{
+  showStruct = !showStruct;
+  try{ localStorage.setItem('shadowtrading.struct', showStruct ? '1' : '0'); }catch(e){}
+  $('structBtn').classList.toggle('on', showStruct);
+  $('structBtn').setAttribute('aria-checked', showStruct);
+};
+
 function drawZones(){
   const dpr = window.devicePixelRatio || 1;
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -2491,6 +2579,7 @@ function drawZones(){
   }
   for(const b of closedBoxes) drawPosBox(b, false);
   if(pos) drawPosBox(pos, true);
+  renderStruct();
   renderDrawings();
   positionInline();
   updatePalette();
@@ -4293,7 +4382,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
   const declHtml = `<div id="declBox"><div class="hd"><b id="declTitle"></b><span>見て決めたら押す</span></div>
       <div class="declSeg" role="group" aria-label="相場の宣言"><button data-s="up">上昇</button><button data-s="down">下降</button><button data-s="range">レンジ</button></div>
       <div id="declPlays"></div></div>`;
-  $('profileBar').insertAdjacentHTML('afterend', declHtml);
+  $('structBar').insertAdjacentHTML('afterend', declHtml);   // 並び：自分のバイアス → サポート（CHoCH／BOS）→ 今の4Hは？
   $('chartWrap').insertAdjacentHTML('beforeend', `<div id="declPill" role="group" aria-label="相場の宣言"><span class="lbl" id="declPillTf"></span><button data-s="up">上昇</button><button data-s="down">下降</button><button data-s="range">レンジ</button></div>`);
   function syncDecl(){
     const show = B.mode==='declare';
@@ -4579,6 +4668,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
   };
   $('pfEdit').onclick = openBias;
   window.bzOpen = openBias; window.bzSetDecl = s => { decl = s; syncDecl(); };
+  window.bzStructTf = ()=> tfAt(1);   // CHoCH／BOS を判定する足＝バイアスの作戦の足
   // 保存したバイアスがあれば、開いたらすぐゲーム開始。なければ設定画面を出す
   try{
     const sv = JSON.parse(localStorage.getItem('shadowtrading.bias') || 'null');
