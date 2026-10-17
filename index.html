@@ -155,6 +155,12 @@
   #profileBar b{font-size:13px;color:var(--accent)}
   #pfTf{font-size:10.5px;color:var(--muted)}
   #pfEdit{font-size:11px;padding:4px 10px;white-space:nowrap}
+  #modeBar{flex:none;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .modeSeg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .modeSeg button{flex:1;border:none;border-radius:0;padding:8px 0;font-size:13px;font-weight:700;background:var(--panel2);color:var(--muted)}
+  .modeSeg button.on{background:var(--accent);color:#1b1a27}
+  .modeSeg button:disabled:not(.on){opacity:.45;cursor:not-allowed}
+  #freeNote{margin:8px 0 0;font-size:11px;line-height:1.6;color:var(--muted)}
   #structBar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
   #structBar>div{display:flex;flex-direction:column;gap:2px;min-width:0}
   #structBar b{font-size:12px}
@@ -4668,6 +4674,37 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
   };
   window.bzGame = G;
 
+  // ==================== モード：ゲーム／フリー ====================
+  // フリー＝好きな日・好きな足から、何回でもトレードできる普通のリプレイ（採点・成績はゲームと同じ）
+  let MODE = 'game';
+  try{ if(localStorage.getItem('shadowtrading.mode') === 'free') MODE = 'free'; }catch(e){}
+  $('profileBar').insertAdjacentHTML('afterend', `<div id="modeBar"><div class="modeSeg" role="group" aria-label="モード"><button data-mode="game">ゲーム</button><button data-mode="free">フリー</button></div>
+    <p id="freeNote" hidden>好きな日・好きな足から、何回でもトレードできます。開始日・🎲ランダムはリプレイ欄から。採点と成績は今までどおり。</p></div>`);
+  function renderMode(){
+    document.querySelectorAll('#modeBar button').forEach(b=>{
+      b.classList.toggle('on', b.dataset.mode===MODE);
+      b.disabled = !!pos && b.dataset.mode!==MODE;   // 保有中は切り替えない
+    });
+    $('freeNote').hidden = MODE!=='free';
+  }
+  function setMode(m){
+    if(m===MODE || pos) return;
+    MODE = m;
+    try{ localStorage.setItem('shadowtrading.mode', m); }catch(e){}
+    if(m==='free'){
+      // 今のチャートのまま、ゲームの制限（1トレード・見送り）を外す
+      G.on = false; G.ended = false;
+      document.body.classList.remove('game-mode', 'game-ended');
+      $('gameBox').hidden = true;
+      $('fbModal').hidden = true;
+      $('fbClose').textContent = '続ける（Enter）';
+    }else newGame();
+    renderMode();
+  }
+  document.querySelectorAll('#modeBar button').forEach(b=> b.onclick = ()=> setMode(b.dataset.mode));
+  new MutationObserver(renderMode).observe($('closeBtn'), {attributes:true, attributeFilter:['disabled']});   // 建てた・決済・取消で更新
+  renderMode();
+
   function openBias(){ if(typeof stopPlay==='function') stopPlay(); render(); $('setupModal').hidden = true; $('biasModal').hidden = false; }
   $('bzCancel').onclick = ()=>{ $('biasModal').hidden = true; };
   function renderProfile(){
@@ -4679,7 +4716,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
     try{ localStorage.setItem('shadowtrading.bias', JSON.stringify(B)); }catch(e){}
     renderProfile();
     syncDecl();
-    if(!pos) newGame();   // 設定したら、ランダムな場面でゲーム開始（上位足から）
+    if(!pos && MODE==='game') newGame();   // 設定したら、ランダムな場面でゲーム開始（上位足から）。フリーはそのまま
   };
   $('pfEdit').onclick = openBias;
   window.bzOpen = openBias; window.bzSetDecl = s => { decl = s; syncDecl(); };
@@ -4697,7 +4734,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
   if(biasSaved){
     renderProfile();
     $('setupModal').hidden = true;
-    const startWhenReady = (n=0)=>{ if(candles.length && !pos) newGame(); else if(n < 100) setTimeout(()=>startWhenReady(n+1), 100); };
+    const startWhenReady = (n=0)=>{ if(candles.length && !pos){ if(MODE==='game') newGame(); } else if(n < 100) setTimeout(()=>startWhenReady(n+1), 100); };
     startWhenReady();
   }else openBias();
 })();
