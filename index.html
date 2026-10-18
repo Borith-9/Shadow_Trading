@@ -43,13 +43,11 @@
   /* ロゴ「Shadow」：影でこっそり頑張る。文字は暗く、輪郭だけ金に光る */
   header .logo{font-family:var(--score);font-weight:700;font-size:20px;color:#1b1a27;letter-spacing:.5px;margin-right:6px;line-height:1;
     text-shadow:0 0 1px rgba(232,179,75,.95),0 0 6px rgba(232,179,75,.75),0 0 14px rgba(232,179,75,.35)}
-  header .logo small{font-family:'IBM Plex Sans JP';font-weight:500;font-size:11px;color:var(--muted);margin-left:6px;letter-spacing:0;text-shadow:none}
-  header label{color:var(--muted);font-size:11px}
   #symbol{font-weight:600}
-  #loadBtn{background:var(--accent);border-color:var(--accent);color:#1b1a27;font-weight:600}
-  #loadBtn:hover{background:#f0c266}
   #rsiBtn.on,#emaBtn.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
-  #loadStatus{font-size:11px;color:var(--muted)}
+  #loadStatus{font-size:11px;color:var(--muted);white-space:nowrap}   /* 読み込み中・エラーの時だけ出す（ふだんはシンボルのボタンのツールチップ） */
+  #tfSeg{margin-left:6px}
+  #emaBtn{margin-left:auto}   /* EMA・RSI・価格は右端にまとめる */
   .seg{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px;gap:2px}
   .seg button{border:none;border-radius:6px;background:none;padding:5px 9px;font-size:11px;color:var(--muted)}
   .seg button:hover{background:var(--hover);color:var(--text)}
@@ -312,8 +310,8 @@
     header{flex-wrap:nowrap;overflow-x:auto;gap:6px;padding:6px 8px;scrollbar-width:none}
     header::-webkit-scrollbar{display:none}
     header>*{flex:none}
-    header .logo, header>label, header>span:not(#loadStatus), #loadStatus{display:none}
-    #tfSeg{order:-3} #pdSeg{order:-2} #loadBtn{order:-1}   /* よく使う「足」を先頭に */
+    header .logo, #loadStatus{display:none}
+    #tfSeg{order:-3;margin-left:0} #pdSeg{order:-2}   /* よく使う「足」を先頭に */
     .seg button{padding:6px 8px}
     #rsiWrap{height:84px}
     .kbd:not(#backHint){display:none}   /* キーボードの説明はスマホでは不要 */
@@ -350,13 +348,13 @@
     #tfSeg{order:-3;flex:1 1 0;min-width:0;overflow-x:auto;scrollbar-width:none}
     #tfSeg button{flex:1 0 auto}
     #mToolsBtn{order:-2} #mMoreBtn{order:-1}
-    #pdSeg,#loadBtn{order:0}
+    #pdSeg{order:0}
     #mToolsBtn,#mMoreBtn{width:38px;height:34px;padding:0}
     #mToolsBtn svg,#mMoreBtn svg{width:18px;height:18px}
     body:not(.m-more) header>:not(#tfSeg):not(.mOnly){display:none!important}
     body.m-more #pdSeg{flex:1 1 100%;overflow-x:auto}
     body.m-more #pdSeg button{flex:1 0 auto}
-    body.m-more #loadStatus{display:block;flex:1 1 100%}
+    body.m-more #loadStatus:not([hidden]){display:block;flex:1 1 100%}
 
     /* 描画ツール：［描画］ボタンで開閉 */
     body:not(.m-tools) #toolbar{display:none}
@@ -481,27 +479,21 @@
   </div>
 </div>
 <header>
-  <span class="logo">Shadow<small>練習ゲーム</small></span>
-  <label>シンボル</label><input id="symbol" type="hidden" value="XAUUSD">
+  <span class="logo">Shadow</span>
+  <input id="symbol" type="hidden" value="XAUUSD">
   <button id="symBtn" aria-haspopup="true" title="シンボルを選ぶ"></button>
-  <label>足</label>
-  <div class="seg" id="tfSeg">
+  <span id="loadStatus" hidden></span>
+  <div class="seg" id="tfSeg" title="足">
     <button data-v="5m">5m</button><button data-v="15m">15m</button><button data-v="30m">30m</button><button data-v="1h" class="on">1h</button><button data-v="4h">4h</button><button data-v="1d">D</button>
   </div>
   <button id="mToolsBtn" class="mOnly" title="描画ツール" aria-label="描画ツールを開く" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none"><line x1="4" y1="19" x2="20" y2="5" stroke="currentColor" stroke-width="1.8"/><circle cx="4" cy="19" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="20" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
   <button id="mMoreBtn" class="mOnly" title="期間・表示の設定" aria-label="期間・表示の設定を開く" aria-expanded="false"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
-  <label>期間</label>
-  <div class="seg" id="pdSeg">
-    <button data-v="90">3M</button><button data-v="180">6M</button><button data-v="365" class="on">1Y</button><button data-v="730">2Y</button><button data-v="1825">5Y</button><button data-v="max">全部</button><button data-v="custom">指定</button>
+  <div class="seg" id="pdSeg" title="読み込む期間">
+    <button data-v="90">3M</button><button data-v="180">6M</button><button data-v="365" class="on">1Y</button><button data-v="730">2Y</button><button data-v="1825">5Y</button><button data-v="max">全部</button>
   </div>
-  <input type="date" id="dataFrom" title="取得開始日（「指定」で有効）" style="width:130px">
-  <span style="color:var(--muted)">〜</span>
-  <input type="date" id="dataTo" title="取得終了日（空欄=今日）" style="width:130px">
-  <button id="loadBtn" title="選んだ期間でチャートを読み込み直す（描画とポジションはリセット）">読み込み</button>
   <button id="emaBtn" title="EMAの設定（期間・表示・追加）" aria-haspopup="true">EMA ▾</button>
   <button id="rsiBtn" title="RSIダイバージェンスの表示/非表示">RSI</button>
   <button id="pxBtn" title="価格軸の表示/非表示">価格</button>
-  <span id="loadStatus">内蔵データを準備中…</span>
 </header>
 
 <div id="main">
@@ -1392,10 +1384,6 @@ document.querySelectorAll('#tfSeg button').forEach(b=>{
     if(candles.length) reloadKeepReplay();
   };
 });
-$('dataFrom').onchange = $('dataTo').onchange = ()=>{
-  document.querySelectorAll('#pdSeg button').forEach(x=>x.classList.toggle('on', x.dataset.v==='custom'));
-  curPeriod = 'custom';
-};
 document.querySelectorAll('#pdSeg button').forEach(b=>{
   b.onclick = ()=>{
     document.querySelectorAll('#pdSeg button').forEach(x=>x.classList.remove('on'));
@@ -1410,7 +1398,7 @@ document.querySelectorAll('#pdSeg button').forEach(b=>{
 const SYMBOL_ALIAS = { 'XAUUSD':'PAXGUSDT', 'GOLD':'PAXGUSDT', 'XAU':'PAXGUSDT' };
 
 // ---- 一括ダウンロード方式 ----
-// 「データ取得」時に5分足を一括ダウンロードし、15m/30m/1h/4h/Dはローカルで合成する。
+// 読み込み時に5分足を一括ダウンロードし、15m/30m/1h/4h/Dはローカルで合成する。
 // → 足の切り替えは再ダウンロードなしで一瞬。1mだけは初回選択時に取得してキャッシュ。
 const TF_SEC = {'1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400};
 let tfCache = {};        // tf -> candles配列
@@ -1474,7 +1462,7 @@ async function dsLoad(sym){
   if(dsCache[sym]) return dsCache[sym];
   if(embHas(sym)) return dsCache[sym] = {meta:EMB, cols:await embDecode()};
   const d = SYMBOLS.find(x=>x.sym===sym && x.kind==='file');
-  $('loadStatus').textContent = `${sym} のデータを読み込み中…（初回だけ・約3MB）`;
+  setLoadMsg(`${sym} のデータを読み込み中…（初回だけ・約3MB）`);
   let meta, bin;
   try{
     meta = await (await fetch(d.file + '.json')).json();
@@ -1486,23 +1474,14 @@ async function dsLoad(sym){
   }
   return dsCache[sym] = {meta, cols:await decodeCols(meta, bin)};
 }
-// 期間（3M/1Y/全部/指定）に合わせて内蔵データを切り出す。基準は「内蔵データの最後の足」。
+// 期間（3M/1Y/全部）に合わせて内蔵データを切り出す。基準は「内蔵データの最後の足」。
 async function embFetch(sym){
-  $('loadBtn').disabled = true;
   try{
     const ds = await dsLoad(sym), META = ds.meta;
     const {T, O, H, L, C} = ds.cols;
-    $('dataFrom').min = $('dataTo').min = META.from;   // 「指定」期間の日付はデータの範囲に制限
-    $('dataFrom').max = $('dataTo').max = META.to;
     const n = T.length, lastT = T[n-1];
     let fromT, toT = lastT;
-    if(curPeriod === 'custom'){
-      const f = $('dataFrom').value, t = $('dataTo').value;
-      if(!f){ alert('「指定」期間では開始日を入力してください'); return null; }
-      fromT = Date.parse(f + 'T00:00:00Z')/1000;
-      if(t) toT = Math.min(Date.parse(t + 'T23:59:59Z')/1000, lastT);
-      if(!(fromT < toT)){ alert('期間の指定が不正です（開始 < 終了）'); return null; }
-    }else if(curPeriod === 'max'){
+    if(curPeriod === 'max'){
       fromT = T[0];
     }else{
       fromT = Math.floor((lastT - curPeriod*86400)/86400)*86400;   // UTCの0時にそろえる（日足・4H足が途中から始まらないように）
@@ -1513,44 +1492,30 @@ async function embFetch(sym){
     for(let i=lo; i<n && T[i] <= toT; i++){
       out.push({time:T[i], open:O[i]/100, high:H[i]/100, low:L[i]/100, close:C[i]/100});
     }
-    if(!out.length){ alert('指定した期間にデータがありません（' + META.from + ' 〜 ' + META.to + '）'); return null; }
+    if(!out.length){ alert('この期間にデータがありません（' + META.from + ' 〜 ' + META.to + '）'); return null; }
     loadedSym = sym; loadedEmb = true;
     return out;
   }catch(e){
-    $('loadStatus').textContent = 'エラー: ' + e.message;
+    setLoadMsg('エラー: ' + e.message);
     alert('データの読み込みに失敗: ' + e.message);
     return null;
-  }finally{
-    $('loadBtn').disabled = false;
   }
-}
-if(EMB){
-  // 「指定」期間の日付入力を内蔵データの範囲に制限
-  $('dataFrom').min = $('dataTo').min = EMB.from;
-  $('dataFrom').max = $('dataTo').max = EMB.to;
 }
 
 async function fetchTF(tf){
   const sym = $('symbol').value.trim().toUpperCase();
   if(tf === '5m' && hasLocal(sym)) return await embFetch(sym);
   const apiSym = SYMBOL_ALIAS[sym] || sym;
-  // 期間の解決: 数値=日数 / 'max'=取得できる限り全部 / 'custom'=日付指定
+  // 期間の解決: 数値=日数 / 'max'=取得できる限り全部
   let end = Date.now();
   let start;
-  if(curPeriod === 'custom'){
-    const f = $('dataFrom').value, t = $('dataTo').value;
-    if(!f){ alert('「指定」期間では取得開始日を入力してください'); $('loadBtn').disabled=false; return null; }
-    start = Date.parse(f + 'T00:00:00Z');
-    if(t) end = Math.min(Date.parse(t + 'T23:59:59Z'), end);
-    if(!(start < end)){ alert('期間の指定が不正です（開始 < 終了）'); $('loadBtn').disabled=false; return null; }
-  }else if(curPeriod === 'max'){
+  if(curPeriod === 'max'){
     start = Date.UTC(2010,0,1);   // 上場前を指定してもBinanceは最古データから返す
   }else{
     start = end - curPeriod*864e5;
   }
   let effStart = start;           // 進捗表示用（実データの開始点で補正）
   const out = [];
-  $('loadBtn').disabled = true;
   try{
     while(start < end){
       const url = `https://data-api.binance.vision/api/v3/klines?symbol=${apiSym}&interval=${tf}&startTime=${start}&limit=1000`;   // 市場データ専用ホスト（api.binance.com はつながらない環境がある）
@@ -1562,22 +1527,20 @@ async function fetchTF(tf){
       for(const k of js) out.push({time:k[0]/1000, open:+k[1], high:+k[2], low:+k[3], close:+k[4]});
       if(firstBatch) effStart = Math.max(effStart, js[0][0]);   // 上場日補正
       start = js[js.length-1][0] + 1;
-      if(start > end) break;                                     // 指定終了日を超えたら停止
-      $('loadStatus').textContent = `${tf} 一括取得中… ${out.length.toLocaleString()}本`;
+      if(start > end) break;                                     // 今の時刻を超えたら停止
+      setLoadMsg(`${tf} 一括取得中… ${out.length.toLocaleString()}本`);
       $('progress').style.width = Math.min(100,(start-effStart)/(end-effStart)*100)+'%';
     }
-    // 指定終了日より後の足を除去
+    // 終了時刻より後の足を除去
     while(out.length && out[out.length-1].time*1000 > end) out.pop();
     if(!out.length) throw new Error('データが空です');
     loadedSym = sym; loadedEmb = false;
     $('progress').style.width = '0';
-    $('loadBtn').disabled = false;
     return out;
   }catch(e){
-    $('loadStatus').textContent = 'エラー: '+e.message;
+    setLoadMsg('エラー: '+e.message);
     alert('取得失敗: '+e.message+'\n※このファイルはローカルでブラウザから開いてください（claude.ai内プレビューでは外部APIがブロックされます）');
     $('progress').style.width = '0';
-    $('loadBtn').disabled = false;
     return null;
   }
 }
@@ -1612,8 +1575,11 @@ async function getTF(tf){
 function showStatus(){
   const alias = SYMBOL_ALIAS[loadedSym] ? '（'+SYMBOL_ALIAS[loadedSym]+'連動）' : '';
   const src = loadedEmb ? `${embHas(loadedSym) ? '内蔵データ' : 'データ'}（〜${(dsCache[loadedSym] || {meta:EMB}).meta.to}）` : '足切替は再DLなし';
-  $('loadStatus').textContent = `${loadedSym}${alias} ${curTF} — ${candles.length.toLocaleString()}本（${fmtT(candles[0].time)} 〜）${src}`;
+  $('symBtn').title = `${loadedSym}${alias} ${curTF} — ${candles.length.toLocaleString()}本（${fmtT(candles[0].time)} 〜）${src}`;
+  setLoadMsg('');
 }
+// 読み込み中・エラーの文言（上のバーのシンボルの右）。空なら隠す
+function setLoadMsg(t){ const el = $('loadStatus'); el.textContent = t || ''; el.hidden = !t; }
 function updateDateRange(){
   // 開始日の選択範囲＝取得したデータの範囲（日付はUTC基準で統一）
   const minDate = new Date(candles[0].time*1000).toISOString().slice(0,10);
@@ -1642,7 +1608,7 @@ async function fetchCandles(){
   return true;
 }
 
-// 「データ取得」ボタン：全リセットして一括読み込み
+// 全リセットして一括読み込み（起動時・シンボルの切り替え）
 async function loadData(keepLog){
   stopPlay(); resetPosition(!keepLog);
   drawings = []; selDraw = null; setDrawTool(null);
@@ -1657,7 +1623,6 @@ async function loadData(keepLog){
   // 再生・+1本は常に押せる（未開始なら開始日から自動スタート）
   $('playBtn').disabled = $('stepBtn').disabled = $('backBtn').disabled = false;
 }
-$('loadBtn').onclick = async ()=>{ await loadData(); if(typeof histReset==='function') histReset(); };
 
 // 足・期間の切り替え：リプレイ位置・ポジション・描画・ログを維持
 // refetch=true（期間変更など）のときだけ再ダウンロード。足の切替はキャッシュから即時。
@@ -4367,8 +4332,8 @@ if(!sgProfile) sgOpenSetup();
 })();
 
 // データがあれば、開いた時点でチャートを読み込む（XAUUSD は内蔵なのでダウンロード待ちなし）
-if(hasLocal($('symbol').value.trim().toUpperCase())) $('loadBtn').click();
-else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キー不要）';
+if(hasLocal($('symbol').value.trim().toUpperCase())) loadData().then(()=>{ if(typeof histReset==='function') histReset(); });
+else if(!EMB) setLoadMsg('未取得（Binance公開API・キー不要）');
 </script>
 <!-- ==================== 自分のバイアス（相場の状態 × 作戦）／エントリー確認／採点／ゲーム ==================== -->
 <style>
