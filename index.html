@@ -563,7 +563,7 @@
     <button id="sideTab" title="右のパネルを隠す" aria-label="右のパネルを隠す" aria-expanded="true">›</button>
     <div id="sidePos"><span id="spInfo"></span><button id="spClose">今の価格で決済</button><button id="spCancel">取り消し</button></div>
   </div>
-  <div id="rsiWrap">
+  <div id="rsiWrap" hidden>
     <div id="rsiLegend">RSI divergence <span>14 close</span> <b id="rsiVal">—</b></div>
     <div id="rsiChart"></div>
     <canvas id="rsiOverlay"></canvas>
@@ -3550,7 +3550,7 @@ $('csvBtn').onclick = ()=>{
 // 通常ダイバージェンスのみ：Bull＝価格は安値更新・RSIは安値切り上げ／Bear＝価格は高値更新・RSIは高値切り下げ。
 // ピボットは右側5本が確定してから表示（リプレイでも未来の足は使わない）。
 const RSI_P = 14, DIV_L = 5, DIV_R = 5, DIV_MIN = 5, DIV_MAX = 60;
-let rsiData = [], divs = [], showRSI = true;
+let rsiData = [], divs = [], showRSI = false;   // 最初は非表示（上のバー／スマホは ⋯ の［RSI］で表示）
 
 const rsiWrapEl = $('rsiWrap');
 const rsiChart = LightweightCharts.createChart($('rsiChart'), {
@@ -3686,7 +3686,6 @@ function drawRsi(){
 requestAnimationFrame(drawRsi);
 
 // 表示・非表示
-$('rsiBtn').classList.add('on');
 $('rsiBtn').onclick = ()=>{
   showRSI = !showRSI;
   $('rsiBtn').classList.toggle('on', showRSI);
@@ -4237,8 +4236,6 @@ if(!sgProfile) sgOpenSetup();
   const closeSheet = ()=>{ if(mq.matches && B.classList.contains('m-sheet')) $('mSheetBtn').click(); };
   $('startBtn').addEventListener('click', closeSheet);
   $('randBtn').addEventListener('click', closeSheet);
-  // スマホではRSIを最初は畳んでおく（⋯ → RSI で表示。採点・フィードバックには影響しない）
-  if(mq.matches && showRSI) $('rsiBtn').click();
 })();
 // ---------- 上のバーの表示／非表示（PC・iPad）：チャート上端のタブ。選んだ状態はブラウザに保存 ----------
 (function(){
