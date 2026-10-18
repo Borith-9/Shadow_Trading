@@ -80,6 +80,17 @@
   #chart{width:100%;height:100%}
   #overlay{position:absolute;inset:0;z-index:3;pointer-events:none}
   #ohlc{position:absolute;top:8px;left:10px;z-index:5;font-family:var(--mono);font-size:11px;color:var(--muted);pointer-events:none}
+  #symBtn{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;font-weight:700;font-size:13px}
+  #symBtn small{color:var(--muted);font-weight:500;font-size:11px}
+  #symPop{position:fixed;z-index:60;width:310px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:0 14px 40px rgba(0,0,0,.55)}
+  #symPop button.it{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:none;border-radius:8px;background:none;font-size:13px;text-align:left}
+  #symPop button.it:hover{background:var(--hover)}
+  #symPop button.it.on{background:var(--accent-soft)}
+  #symPop .it b{min-width:78px;font-family:var(--mono)}
+  #symPop .it span{flex:1;color:var(--muted)}
+  #symPop .tag{font-size:10.5px;padding:2px 7px;border-radius:10px;border:1px solid var(--line);color:var(--muted);font-style:normal}
+  #symPop .tag.in{color:var(--up);border-color:rgba(38,166,154,.5)}
+  #symPop .ft{font-size:11px;color:var(--muted);padding:8px 10px 4px;line-height:1.6;border-top:1px dashed var(--line);margin-top:4px}
   #emaLeg{position:absolute;top:28px;left:10px;z-index:5;display:flex;gap:10px;font-family:var(--mono);font-size:11px;pointer-events:none}
   #emaPop{position:fixed;z-index:60;width:260px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:0 14px 40px rgba(0,0,0,.55);font-size:12px}
   #emaPop h4{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:600}
@@ -425,6 +436,8 @@
 <body>
 <div id="progress"></div>
 <!-- トレーダー設定モーダル -->
+<!-- シンボルの選択 -->
+<div id="symPop" hidden role="dialog" aria-label="シンボルを選ぶ"></div>
 <!-- EMA の設定（［EMA ▾］で開く） -->
 <div id="emaPop" hidden role="dialog" aria-label="EMAの設定">
   <h4>EMA（期間は自由に入力・最大5本）</h4>
@@ -469,10 +482,8 @@
 </div>
 <header>
   <span class="logo">Shadow<small>練習ゲーム</small></span>
-  <label>シンボル</label><input id="symbol" value="XAUUSD" style="width:90px" list="symList">
-  <datalist id="symList">
-    <option value="XAUUSD"><option value="ETHUSDT"><option value="BTCUSDT"><option value="SOLUSDT"><option value="XRPUSDT">
-  </datalist>
+  <label>シンボル</label><input id="symbol" type="hidden" value="XAUUSD">
+  <button id="symBtn" aria-haspopup="true" title="シンボルを選ぶ"></button>
   <label>足</label>
   <div class="seg" id="tfSeg">
     <button data-v="5m">5m</button><button data-v="15m">15m</button><button data-v="30m">30m</button><button data-v="1h" class="on">1h</button><button data-v="4h">4h</button><button data-v="1d">D</button>
@@ -1428,31 +1439,61 @@ function embHas(sym){
 }
 async function embDecode(){
   if(embCols) return embCols;
-  if(typeof DecompressionStream === 'undefined') throw new Error('このブラウザは内蔵データの展開に未対応です（Chrome / Edge / Firefox の最新版で開いてください）');
   const s = atob(EMB.b64);
   const bin = new Uint8Array(s.length);
   for(let i=0;i<s.length;i++) bin[i] = s.charCodeAt(i);
+  return embCols = await decodeCols(EMB, bin);
+}
+// 5分足データ（gzip＋可変長の差分）を列に戻す。内蔵の金データも、data/ フォルダのファイルも同じ形式
+async function decodeCols(META, bin){
+  if(typeof DecompressionStream === 'undefined') throw new Error('このブラウザはデータの展開に未対応です（Chrome / Edge / Firefox / Safari の最新版で開いてください）');
   const buf = new Uint8Array(await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
-  const n = EMB.n, step = EMB.step;
+  const n = META.n, step = META.step;
   let p = 0;
   const rd = ()=>{ let u = 0, sh = 0, b; do{ b = buf[p++]; u |= (b & 0x7f) << sh; sh += 7; }while(b & 0x80); return u; };
   const zz = u => (u & 1) ? -((u+1) >> 1) : (u >> 1);
   const T = new Int32Array(n), O = new Int32Array(n), H = new Int32Array(n), L = new Int32Array(n), C = new Int32Array(n);
   // 列の順番：時刻差 → 始値差（前の足の終値から）→ 実体（終値−始値）→ 上ヒゲ → 下ヒゲ
-  for(let i=0;i<n;i++){ const d = rd(); T[i] = i ? T[i-1] + step*(d+1) : EMB.t0; }
+  for(let i=0;i<n;i++){ const d = rd(); T[i] = i ? T[i-1] + step*(d+1) : META.t0; }
   const dO = new Int32Array(n);
   for(let i=0;i<n;i++) dO[i] = zz(rd());
   for(let i=0;i<n;i++){ O[i] = i ? C[i-1] + dO[i] : dO[i]; C[i] = O[i] + zz(rd()); }
   for(let i=0;i<n;i++) H[i] = Math.max(O[i], C[i]) + rd();
   for(let i=0;i<n;i++) L[i] = Math.min(O[i], C[i]) - rd();
-  if(p !== buf.length) throw new Error('内蔵データが壊れています');
-  return embCols = {T, O, H, L, C};
+  if(p !== buf.length) throw new Error('データが壊れています');
+  return {T, O, H, L, C};
+}
+// 使える銘柄。XAUUSD＝HTMLに内蔵、ほかは data/ フォルダのファイル（初めて選んだときだけ読み込む・約3MB）
+const SYMBOLS = [
+  {sym:'XAUUSD',  name:'金（ゴールド）', kind:'embed'},
+  {sym:'ETHUSDT', name:'イーサリアム',   kind:'file', file:'data/ETHUSDT_5m'},
+];
+const dsCache = {};   // sym -> {meta, cols}
+const hasLocal = sym => embHas(sym) || SYMBOLS.some(d=>d.sym===sym && d.kind==='file');
+async function dsLoad(sym){
+  if(dsCache[sym]) return dsCache[sym];
+  if(embHas(sym)) return dsCache[sym] = {meta:EMB, cols:await embDecode()};
+  const d = SYMBOLS.find(x=>x.sym===sym && x.kind==='file');
+  $('loadStatus').textContent = `${sym} のデータを読み込み中…（初回だけ・約3MB）`;
+  let meta, bin;
+  try{
+    meta = await (await fetch(d.file + '.json')).json();
+    const r = await fetch(d.file + '.bin');
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    bin = new Uint8Array(await r.arrayBuffer());
+  }catch(e){
+    throw new Error(`${sym} のデータを取得できませんでした（サイトで開いたときだけ使えます）`);
+  }
+  return dsCache[sym] = {meta, cols:await decodeCols(meta, bin)};
 }
 // 期間（3M/1Y/全部/指定）に合わせて内蔵データを切り出す。基準は「内蔵データの最後の足」。
 async function embFetch(sym){
   $('loadBtn').disabled = true;
   try{
-    const {T, O, H, L, C} = await embDecode();
+    const ds = await dsLoad(sym), META = ds.meta;
+    const {T, O, H, L, C} = ds.cols;
+    $('dataFrom').min = $('dataTo').min = META.from;   // 「指定」期間の日付はデータの範囲に制限
+    $('dataFrom').max = $('dataTo').max = META.to;
     const n = T.length, lastT = T[n-1];
     let fromT, toT = lastT;
     if(curPeriod === 'custom'){
@@ -1472,12 +1513,12 @@ async function embFetch(sym){
     for(let i=lo; i<n && T[i] <= toT; i++){
       out.push({time:T[i], open:O[i]/100, high:H[i]/100, low:L[i]/100, close:C[i]/100});
     }
-    if(!out.length){ alert('指定した期間に内蔵データがありません（' + EMB.from + ' 〜 ' + EMB.to + '）'); return null; }
+    if(!out.length){ alert('指定した期間にデータがありません（' + META.from + ' 〜 ' + META.to + '）'); return null; }
     loadedSym = sym; loadedEmb = true;
     return out;
   }catch(e){
     $('loadStatus').textContent = 'エラー: ' + e.message;
-    alert('内蔵データの読み込みに失敗: ' + e.message);
+    alert('データの読み込みに失敗: ' + e.message);
     return null;
   }finally{
     $('loadBtn').disabled = false;
@@ -1491,7 +1532,7 @@ if(EMB){
 
 async function fetchTF(tf){
   const sym = $('symbol').value.trim().toUpperCase();
-  if(tf === '5m' && embHas(sym)) return await embFetch(sym);
+  if(tf === '5m' && hasLocal(sym)) return await embFetch(sym);
   const apiSym = SYMBOL_ALIAS[sym] || sym;
   // 期間の解決: 数値=日数 / 'max'=取得できる限り全部 / 'custom'=日付指定
   let end = Date.now();
@@ -1512,7 +1553,7 @@ async function fetchTF(tf){
   $('loadBtn').disabled = true;
   try{
     while(start < end){
-      const url = `https://api.binance.com/api/v3/klines?symbol=${apiSym}&interval=${tf}&startTime=${start}&limit=1000`;
+      const url = `https://data-api.binance.vision/api/v3/klines?symbol=${apiSym}&interval=${tf}&startTime=${start}&limit=1000`;   // 市場データ専用ホスト（api.binance.com はつながらない環境がある）
       const r = await fetch(url);
       if(!r.ok) throw new Error('HTTP '+r.status+'（シンボル名を確認。例: XAUUSD, ETHUSDT, BTCUSDT）');
       const js = await r.json();
@@ -1570,7 +1611,7 @@ async function getTF(tf){
 
 function showStatus(){
   const alias = SYMBOL_ALIAS[loadedSym] ? '（'+SYMBOL_ALIAS[loadedSym]+'連動）' : '';
-  const src = loadedEmb ? `内蔵データ（〜${EMB.to}）` : '足切替は再DLなし';
+  const src = loadedEmb ? `${embHas(loadedSym) ? '内蔵データ' : 'データ'}（〜${(dsCache[loadedSym] || {meta:EMB}).meta.to}）` : '足切替は再DLなし';
   $('loadStatus').textContent = `${loadedSym}${alias} ${curTF} — ${candles.length.toLocaleString()}本（${fmtT(candles[0].time)} 〜）${src}`;
 }
 function updateDateRange(){
@@ -1602,8 +1643,8 @@ async function fetchCandles(){
 }
 
 // 「データ取得」ボタン：全リセットして一括読み込み
-async function loadData(){
-  stopPlay(); resetPosition(true);
+async function loadData(keepLog){
+  stopPlay(); resetPosition(!keepLog);
   drawings = []; selDraw = null; setDrawTool(null);
   closedBoxes = [];
   autoReset(); autoStatus();
@@ -4289,8 +4330,44 @@ if(!sgProfile) sgOpenSetup();
   $('spCancel').onclick = ()=> $('cancelBtn').click();
 })();
 
-// 内蔵データがあれば、開いた時点でチャートを読み込む（ダウンロード待ちなし）
-if(EMB && embHas($('symbol').value.trim().toUpperCase())) $('loadBtn').click();
+// ---------- シンボルの選択（XAUUSD＝内蔵、ETHUSDT＝初回だけサイトから読み込み）。最後に選んだものを覚える ----------
+(function(){
+  try{ const sv = localStorage.getItem('shadowtrading.sym'); if(sv && SYMBOLS.some(d=>d.sym===sv)) $('symbol').value = sv; }catch(e){}
+  const cur = ()=> $('symbol').value.trim().toUpperCase();
+  const label = ()=>{ const d = SYMBOLS.find(x=>x.sym===cur()); $('symBtn').innerHTML = `${cur()} <small>${d ? d.name.replace(/（.*）/,'') : ''}</small> ▾`; };
+  const render = ()=>{
+    $('symPop').innerHTML = SYMBOLS.map(d=>`<button class="it${d.sym===cur()?' on':''}" data-sym="${d.sym}"><b>${d.sym}</b><span>${d.name}</span><em class="tag${d.kind==='embed'?' in':''}">${d.kind==='embed' ? '内蔵' : (dsCache[d.sym] ? '読込済み' : '初回だけDL')}</em></button>`).join('')
+      + `<div class="ft">どれも 5分足（2020-08〜2026-10）。${SYMBOLS.filter(d=>d.kind==='file').map(d=>d.sym.replace('USDT','')).join('・')} は初めて選んだときだけ、このサイトから約3MBを読み込みます。切り替えると描画とポジションはリセット（成績は残ります）。</div>`;
+    $('symPop').querySelectorAll('[data-sym]').forEach(b=> b.onclick = async ()=>{
+      const sym = b.dataset.sym;
+      $('symPop').hidden = true;
+      if(sym === cur() && candles.length) return;
+      if(pos){ alert('ポジションを決済（または取り消し）してから切り替えてください'); return; }
+      $('symbol').value = sym; label();
+      try{ localStorage.setItem('shadowtrading.sym', sym); }catch(e){}
+      await loadData(true);
+      if(typeof histReset==='function') histReset();
+      if(window.bzGame && bzGame.on && typeof window.bzNewGame === 'function') bzNewGame();   // ゲーム中は新しい銘柄で次のゲーム
+    });
+  };
+  $('symBtn').onclick = e=>{
+    e.stopPropagation();
+    const pop = $('symPop');
+    pop.hidden = !pop.hidden;
+    if(!pop.hidden){
+      render();
+      const r = $('symBtn').getBoundingClientRect();
+      pop.style.top = (r.bottom + 8) + 'px';
+      pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+    }
+  };
+  document.addEventListener('pointerdown', e=>{ if(!$('symPop').hidden && !e.target.closest('#symPop') && !e.target.closest('#symBtn')) $('symPop').hidden = true; });
+  document.addEventListener('keydown', e=>{ if(e.code==='Escape') $('symPop').hidden = true; });
+  label();
+})();
+
+// データがあれば、開いた時点でチャートを読み込む（XAUUSD は内蔵なのでダウンロード待ちなし）
+if(hasLocal($('symbol').value.trim().toUpperCase())) $('loadBtn').click();
 else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キー不要）';
 </script>
 <!-- ==================== 自分のバイアス（相場の状態 × 作戦）／エントリー確認／採点／ゲーム ==================== -->
@@ -4953,6 +5030,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
   $('pfEdit').onclick = openBias;
   window.bzOpen = openBias; window.bzSetDecl = s => { decl = s; syncDecl(); };
   window.bzStructTf = ()=> tfAt(1);   // CHoCH／BOS を判定する足＝バイアスの作戦の足
+  window.bzNewGame = ()=> newGame();
   // 保存したバイアスがあれば、開いたらすぐゲーム開始。なければ設定画面を出す
   try{
     const sv = JSON.parse(localStorage.getItem('shadowtrading.bias') || 'null');
@@ -4972,7 +5050,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
   if(biasSaved){
     renderProfile();
     $('setupModal').hidden = true;
-    const startWhenReady = (n=0)=>{ if(candles.length && !pos){ if(MODE==='game') newGame(); } else if(n < 100) setTimeout(()=>startWhenReady(n+1), 100); };
+    const startWhenReady = (n=0)=>{ if(candles.length && !pos){ if(MODE==='game') newGame(); } else if(n < 300) setTimeout(()=>startWhenReady(n+1), 100); };   // ETH などは初回の読み込みに数秒かかる
     startWhenReady();
   }else openBias();
 })();
