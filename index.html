@@ -39,7 +39,7 @@
   [hidden]{display:none!important}
 
   /* ---- ヘッダー ---- */
-  header{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  header{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
   header .logo{font-family:var(--score);font-weight:700;font-size:20px;color:var(--accent);letter-spacing:.5px;margin-right:6px;line-height:1}
   header .logo small{font-family:'IBM Plex Sans JP';font-weight:500;font-size:11px;color:var(--muted);margin-left:6px;letter-spacing:0}
   header label{color:var(--muted);font-size:11px}
@@ -155,12 +155,19 @@
   #profileBar b{font-size:13px;color:var(--accent)}
   #pfTf{font-size:10.5px;color:var(--muted)}
   #pfEdit{font-size:11px;padding:4px 10px;white-space:nowrap}
-  /* 上のバーの折りたたみ（PC・iPad）。たたむとロゴ・足の切り替え・開くボタンだけの1行 */
-  #hdrBtn{width:32px;height:30px;padding:0;font-size:14px;border-radius:8px;flex:none}
-  @media (max-width:760px){ #hdrBtn{display:none} }
+  /* 上のバーの表示／非表示（PC・iPad）：右パネルと同じく、チャート上端の真ん中のタブで出し入れ。
+     隠したときは足の切り替えをチャート左上に出す（スマホは今の上のバーのまま） */
+  #hdrTab{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:8;width:68px;height:22px;padding:0;border-radius:0 0 10px 10px;border:1px solid var(--line);border-top:none;background:rgba(36,34,58,.95);color:var(--text);font-size:14px;font-weight:700;line-height:18px}
+  #hdrTab:hover{background:var(--hover)}
+  #tfPill{display:none}
+  @media (max-width:760px){ #hdrTab{display:none} }
   @media (min-width:761px){
-    body.hdr-off header>:not(.logo):not(#hdrBtn):not(#tfSeg):not(.tflbl){display:none!important}
-    body.hdr-off header{padding-top:5px;padding-bottom:5px}
+    body.hdr-off header{display:none}
+    body.hdr-off #tfPill{display:flex;position:absolute;top:8px;left:8px;z-index:6;gap:2px;padding:3px;border-radius:10px;background:rgba(27,26,39,.92);border:1px solid var(--line)}
+    #tfPill button{padding:5px 9px;font-size:12px;border:none;background:none;color:var(--muted);border-radius:7px}
+    #tfPill button.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
+    body.hdr-off #ohlc{top:46px}
+    body.hdr-off.side-off #declPill{top:30px}   /* タブの下に置く */
   }
   /* 右パネルの表示／非表示（PC・iPad）。スマホ（幅760px以下）は ☰ で開閉するので使わない */
   #sideTab{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:8;width:24px;height:68px;padding:0;border-radius:10px 0 0 10px;border:1px solid var(--line);border-right:none;background:rgba(36,34,58,.95);color:var(--text);font-size:18px;font-weight:700}
@@ -439,12 +446,11 @@
 </div>
 <header>
   <span class="logo">Bar Replay<small>練習ゲーム</small></span>
-  <button id="hdrBtn" title="上のバーをたたむ" aria-label="上のバーをたたむ" aria-expanded="true">︿</button>
   <label>シンボル</label><input id="symbol" value="XAUUSD" style="width:90px" list="symList">
   <datalist id="symList">
     <option value="XAUUSD"><option value="ETHUSDT"><option value="BTCUSDT"><option value="SOLUSDT"><option value="XRPUSDT">
   </datalist>
-  <label class="tflbl">足</label>
+  <label>足</label>
   <div class="seg" id="tfSeg">
     <button data-v="5m">5m</button><button data-v="15m">15m</button><button data-v="30m">30m</button><button data-v="1h" class="on">1h</button><button data-v="4h">4h</button><button data-v="1d">D</button>
   </div>
@@ -521,6 +527,9 @@
       <button id="mBackBtn" disabled>◀ 1本</button>
       <button id="mStepBtn" disabled>1本 ▶</button>
     </div>
+    <!-- 上のバーの表示／非表示（PC・iPad）。隠したときは足の切り替えをチャート左上に出す -->
+    <button id="hdrTab" title="上のバーを隠す" aria-label="上のバーを隠す" aria-expanded="true">︿</button>
+    <div id="tfPill" role="group" aria-label="足"></div>
     <!-- 右パネルの表示／非表示（PC・iPad）。隠したときは保有中のポジションをチャート上に出す -->
     <button id="sideTab" title="右のパネルを隠す" aria-label="右のパネルを隠す" aria-expanded="true">›</button>
     <div id="sidePos"><span id="spInfo"></span><button id="spClose">今の価格で決済</button><button id="spCancel">取り消し</button></div>
@@ -2495,6 +2504,10 @@ function drawZones(){
   if(cv.width !== w*dpr || cv.height !== h*dpr){ cv.width=w*dpr; cv.height=h*dpr; cv.style.width=w+'px'; cv.style.height=h+'px'; }
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,w,h);
+  // 描画・ポジション・CHoCH／BOS はチャートの範囲だけに描く（右の価格・下の時間の欄にかぶらない）
+  const ts0 = chart.timeScale();
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, ts0.width(), h - ts0.height()); ctx.clip();
   // ---- Session Breaks（日区切りの縦点線・常時表示） ----
   if(candles.length && curTF !== '1d' && idx >= 0){
     const ts = chart.timeScale();
@@ -2648,6 +2661,7 @@ function drawZones(){
   if(pos) drawPosBox(pos, true);
   renderStruct();
   renderDrawings();
+  ctx.restore();
   positionInline();
   updatePalette();
   requestAnimationFrame(drawZones);
@@ -2668,7 +2682,7 @@ function hitTest(x, y){
   return null;
 }
 wrap.addEventListener('pointerdown', e=>{
-  if(e.target === ie || e.target.closest('#mFabRow') || e.target.closest('#palette') || e.target.closest('#declPill') || e.target.closest('#gamePill') || e.target.closest('#sideTab') || e.target.closest('#sidePos')) return;
+  if(e.target === ie || e.target.closest('#mFabRow') || e.target.closest('#palette') || e.target.closest('#declPill') || e.target.closest('#gamePill') || e.target.closest('#sideTab') || e.target.closest('#sidePos') || e.target.closest('#hdrTab') || e.target.closest('#tfPill')) return;
   const rc = wrap.getBoundingClientRect();
   const x = e.clientX-rc.left, y = e.clientY-rc.top;
   if(x > chart.timeScale().width()) return;
@@ -2786,7 +2800,7 @@ window.addEventListener('pointerup', e=>{
 
 // ダブルクリックで長方形内テキストの入力・編集（テキスト単体も編集可）
 wrap.addEventListener('dblclick', e=>{
-  if(e.target === ie || e.target.closest('#mFabRow') || e.target.closest('#palette') || e.target.closest('#declPill') || e.target.closest('#gamePill') || e.target.closest('#sideTab') || e.target.closest('#sidePos')) return;
+  if(e.target === ie || e.target.closest('#mFabRow') || e.target.closest('#palette') || e.target.closest('#declPill') || e.target.closest('#gamePill') || e.target.closest('#sideTab') || e.target.closest('#sidePos') || e.target.closest('#hdrTab') || e.target.closest('#tfPill')) return;
   const rc = wrap.getBoundingClientRect();
   const x = e.clientX-rc.left, y = e.clientY-rc.top;
   if(x > chart.timeScale().width()) return;
@@ -4136,15 +4150,23 @@ if(!sgProfile) sgOpenSetup();
   // スマホではRSIを最初は畳んでおく（⋯ → RSI で表示。採点・フィードバックには影響しない）
   if(mq.matches && showRSI) $('rsiBtn').click();
 })();
-// ---------- 上のバーの折りたたみ（PC・iPad）。選んだ状態はブラウザに保存 ----------
+// ---------- 上のバーの表示／非表示（PC・iPad）：チャート上端のタブ。選んだ状態はブラウザに保存 ----------
 (function(){
-  const B = document.body, btn = $('hdrBtn');
+  const B = document.body, btn = $('hdrTab');
   const apply = off => {
     B.classList.toggle('hdr-off', off);
     btn.textContent = off ? '﹀' : '︿';
-    const t = off ? '上のバーを開く' : '上のバーをたたむ';
+    const t = off ? '上のバーを表示' : '上のバーを隠す';
     btn.title = t; btn.setAttribute('aria-label', t); btn.setAttribute('aria-expanded', !off);
   };
+  // 隠したときの足の切り替え（上のバーの足ボタンと同じ動き・同じ選択状態）
+  const src = [...document.querySelectorAll('#tfSeg button')];
+  $('tfPill').innerHTML = src.map(b=>`<button data-v="${b.dataset.v}">${b.textContent}</button>`).join('');
+  const pill = [...$('tfPill').querySelectorAll('button')];
+  pill.forEach(b=> b.onclick = ()=>{ const s = src.find(x=>x.dataset.v===b.dataset.v); if(s) s.click(); });
+  const syncTf = ()=> pill.forEach(b=> b.classList.toggle('on', !!src.find(x=>x.dataset.v===b.dataset.v && x.classList.contains('on'))));
+  new MutationObserver(syncTf).observe($('tfSeg'), {attributes:true, subtree:true, attributeFilter:['class']});
+  syncTf();
   let off = false;
   try{ off = localStorage.getItem('shadowtrading.hdr') === 'off'; }catch(e){}
   apply(off);
