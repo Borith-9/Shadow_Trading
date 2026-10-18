@@ -167,7 +167,8 @@
     #tfPill button{padding:5px 9px;font-size:12px;border:none;background:none;color:var(--muted);border-radius:7px}
     #tfPill button.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
     body.hdr-off #ohlc{top:46px}
-    body.hdr-off.side-off #declPill{top:30px}   /* タブの下に置く */
+    body.hdr-off.side-off #declPill{top:46px}   /* 足の切り替えの下に置く */
+    body.hdr-off.side-off #ohlc{top:84px}
   }
   /* 右パネルの表示／非表示（PC・iPad）。スマホ（幅760px以下）は ☰ で開閉するので使わない */
   #sideTab{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:8;width:24px;height:68px;padding:0;border-radius:10px 0 0 10px;border:1px solid var(--line);border-right:none;background:rgba(36,34,58,.95);color:var(--text);font-size:18px;font-weight:700}
@@ -183,8 +184,9 @@
     body.side-off #mPlayFab{width:52px;height:52px;padding:0;border:none;border-radius:50%;background:var(--accent);color:#1b1a27;font-size:20px}
     body.side-off #mPlayFab.playing{background:#2a2840;color:var(--accent);border:2px solid var(--accent)}
     body.side-off #mBackBtn, body.side-off #mStepBtn{width:86px;height:46px;border-radius:23px;background:rgba(36,34,58,.92);font-size:14px;font-weight:700}
-    /* 4Hの宣言（上の真ん中）・ゲーム番号（右上） */
-    body.side-off #declPill{display:flex;position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:6;gap:3px;padding:3px;border-radius:10px;background:rgba(27,26,39,.92);border:1px solid var(--line)}
+    /* 4Hの宣言（左上。上の真ん中は上のバーのタブ）・ゲーム番号（右上） */
+    body.side-off #ohlc{top:46px}
+    body.side-off #declPill{display:flex;position:absolute;top:8px;left:8px;z-index:6;gap:3px;padding:3px;border-radius:10px;background:rgba(27,26,39,.92);border:1px solid var(--line)}
     body.side-off #declPill button{padding:5px 9px;font-size:12px;font-weight:600;border-radius:7px;border-color:transparent;background:none;color:var(--muted)}
     body.side-off #declPill .lbl{font-family:var(--score);font-size:14px;font-weight:700;color:var(--accent);padding:4px 4px 0 5px}
     body.side-off.game-mode #gamePill{display:flex;position:absolute;top:8px;right:8px;z-index:6;align-items:center;gap:6px;padding:3px 3px 3px 10px;border-radius:10px;background:rgba(27,26,39,.92);border:1px solid var(--line)}
@@ -1167,11 +1169,12 @@ const chart = LightweightCharts.createChart($('chart'), {
 // スマホ（縦：幅760px以下／横：高さ500px以下）
 const MOB_MQ = window.matchMedia('(max-width:760px), (max-height:500px)');
 const isMob = ()=> MOB_MQ.matches;
-// スマホではグリッド線を消し、ローソク足を上下中央の約4割に収める（上下30%ずつ余白）。PCはそのまま
+// グリッド線は出さない（PC・スマホとも。日付の区切りの点線は別に描く）。
+// スマホはローソク足を上下中央の約4割に収める（上下30%ずつ余白）。PCは標準の余白
 function applyMobGrid(){
-  const v = !isMob();
-  chart.applyOptions({grid:{vertLines:{visible:v},horzLines:{visible:v}}});
-  chart.priceScale('right').applyOptions({scaleMargins: v ? {top:0.2, bottom:0.1} : {top:0.3, bottom:0.3}});
+  const pc = !isMob();
+  chart.applyOptions({grid:{vertLines:{visible:false},horzLines:{visible:false}}});
+  chart.priceScale('right').applyOptions({scaleMargins: pc ? {top:0.2, bottom:0.1} : {top:0.3, bottom:0.3}});
 }
 applyMobGrid(); MOB_MQ.addEventListener('change', applyMobGrid);
 // 画面の高さを「実際に見えている高さ」に合わせる（iOS Safari は 100vh／古い版は dvh 非対応で、
@@ -3470,7 +3473,7 @@ const rsiChart = LightweightCharts.createChart($('rsiChart'), {
   timeScale:{visible:false,borderColor:'#33304a'},
   rightPriceScale:{visible:showPx,borderColor:'#33304a',scaleMargins:{top:0.08,bottom:0.08}},
 });
-const rsiGrid = ()=> rsiChart.applyOptions({grid:{vertLines:{visible:!isMob()}}});   // スマホはグリッドなし
+const rsiGrid = ()=> rsiChart.applyOptions({grid:{vertLines:{visible:false}}});   // グリッドなし（本チャートと同じ）
 rsiGrid(); MOB_MQ.addEventListener('change', rsiGrid);
 const rsiSeries = rsiChart.addLineSeries({color:'#6f8ff5', lineWidth:1.5, priceLineVisible:false, lastValueVisible:true,
   autoscaleInfoProvider:()=>({priceRange:{minValue:0,maxValue:100}})});
