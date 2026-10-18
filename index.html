@@ -1959,6 +1959,7 @@ $('toolText').onclick  = ()=> setDrawTool(drawTool==='text'?null:'text');
 // ---------- 描画のコピー＆ペースト ----------
 // Ctrl+C（⌘+C）で選択中の描画をコピー、Ctrl+V（⌘+V）でマウスの位置に貼り付け
 // （マウスがチャートの外なら、元の位置から5本右にずらして貼り付け）
+// ずらす量は「本数」で数える：時間で足すと土日の切れ目をまたいだ端だけ余分に動き、線の形が変わるため
 let drawClip = null;
 let chartMouse = null;   // チャート上のマウス位置 {x,y}
 wrap.addEventListener('pointermove', e=>{ const r = wrap.getBoundingClientRect(); chartMouse = {x:e.clientX-r.left, y:e.clientY-r.top}; });
@@ -1972,11 +1973,11 @@ function copyDrawing(){
 function pasteDrawing(){
   if(!drawClip || !candles.length) return false;
   const d = JSON.parse(JSON.stringify(drawClip));
-  let dt = 5*barSec(), dp = 0;
+  let dl = 5, dp = 0;
   const pt = chartMouse ? xy2pt(chartMouse.x, chartMouse.y) : null;
-  if(pt){ dt = pt.t - d.p1.t; dp = pt.p - d.p1.p; }
-  d.p1 = {t:d.p1.t+dt, p:d.p1.p+dp};
-  if(d.p2) d.p2 = {t:d.p2.t+dt, p:d.p2.p+dp};
+  if(pt){ dl = t2l(pt.t) - t2l(d.p1.t); dp = pt.p - d.p1.p; }
+  d.p1 = shiftPt(d.p1, dl, dp);
+  if(d.p2) d.p2 = shiftPt(d.p2, dl, dp);
   drawings.push(d); selDraw = d;
   // 続けて貼るときは、今貼った位置を基準に少しずらす
   if(!pt) drawClip = JSON.parse(JSON.stringify(d));
@@ -2066,7 +2067,7 @@ $('toolClear').onclick = ()=>{ if((drawings.length||closedBoxes.length) && confi
 } };
 
 // 座標変換（時刻 + 価格 で保持 → 時間足を切り替えても描画が残る）
-const barSec = ()=> candles.length>1 ? candles[1].time-candles[0].time : 60;
+const barSec = ()=> tfSec();   // 足の長さ（秒）。最初の2本の差だと、土日をはさむと49時間になってしまうため
 function t2l(t){ // 時刻 → 論理インデックス（最終足より右は外挿）
   if(!candles.length) return null;
   const st = barSec();
@@ -2087,6 +2088,8 @@ function l2t(l){ // 論理インデックス → 時刻
   const i = Math.floor(l);
   return candles[i].time + (l-i)*(candles[i+1].time-candles[i].time);
 }
+// 点を「本数 dl・価格 dp」だけずらす（移動・貼り付け用。土日の切れ目があっても形が変わらない）
+function shiftPt(q, dl, dp){ return {t:l2t(t2l(q.t)+dl), p:q.p+dp}; }
 function pt2xy(p){
   const l = t2l(p.t); if(l==null) return null;
   const x = chart.timeScale().logicalToCoordinate(l);
@@ -2821,7 +2824,7 @@ wrap.addEventListener('pointerdown', e=>{
   const hd = hitDrawing(x,y);
   if(hd){
     selDraw = hd.d;
-    drawDrag = {d:hd.d, part:hd.part, last:{x,y}};
+    drawDrag = {d:hd.d, part:hd.part, x0:x, y0:y, p1:{...hd.d.p1}, p2:hd.d.p2 ? {...hd.d.p2} : null};   // つかんだ時の位置と形
     e.preventDefault(); e.stopPropagation();
     chart.applyOptions({handleScroll:false, handleScale:false});
     return;
@@ -2852,13 +2855,13 @@ window.addEventListener('pointermove', e=>{
   }else if(drawDrag){
     const d = drawDrag.d;
     if(drawDrag.part==='move' || drawDrag.part==='body'){
-      const a = xy2pt(drawDrag.last.x, drawDrag.last.y);
-      const b = xy2pt(x, y);
-      if(a && b){
-        const dt = b.t-a.t, dp = b.p-a.p;
-        d.p1 = {t:d.p1.t+dt, p:d.p1.p+dp};
-        if(d.p2) d.p2 = {t:d.p2.t+dt, p:d.p2.p+dp};
-        drawDrag.last = {x,y};
+      // つかんだ位置からの移動量（本数・価格）を、つかんだ時の形に足す
+      const ts = chart.timeScale();
+      const l0 = ts.coordinateToLogical(drawDrag.x0), l1 = ts.coordinateToLogical(x);
+      const q0 = series.coordinateToPrice(drawDrag.y0), q1 = series.coordinateToPrice(y);
+      if(l0!=null && l1!=null && q0!=null && q1!=null){
+        d.p1 = shiftPt(drawDrag.p1, l1-l0, q1-q0);
+        if(drawDrag.p2) d.p2 = shiftPt(drawDrag.p2, l1-l0, q1-q0);
       }
     }else if(d.type==='rect' && RECT_CURSOR[drawDrag.part]){
       const p = xy2pt(x,y);
