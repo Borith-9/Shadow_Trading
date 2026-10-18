@@ -155,6 +155,13 @@
   #profileBar b{font-size:13px;color:var(--accent)}
   #pfTf{font-size:10.5px;color:var(--muted)}
   #pfEdit{font-size:11px;padding:4px 10px;white-space:nowrap}
+  /* 上のバーの折りたたみ（PC・iPad）。たたむとロゴ・足の切り替え・開くボタンだけの1行 */
+  #hdrBtn{width:32px;height:30px;padding:0;font-size:14px;border-radius:8px;flex:none}
+  @media (max-width:760px){ #hdrBtn{display:none} }
+  @media (min-width:761px){
+    body.hdr-off header>:not(.logo):not(#hdrBtn):not(#tfSeg):not(.tflbl){display:none!important}
+    body.hdr-off header{padding-top:5px;padding-bottom:5px}
+  }
   /* 右パネルの表示／非表示（PC・iPad）。スマホ（幅760px以下）は ☰ で開閉するので使わない */
   #sideTab{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:8;width:24px;height:68px;padding:0;border-radius:10px 0 0 10px;border:1px solid var(--line);border-right:none;background:rgba(36,34,58,.95);color:var(--text);font-size:18px;font-weight:700}
   #sideTab:hover{background:var(--hover)}
@@ -432,11 +439,12 @@
 </div>
 <header>
   <span class="logo">Bar Replay<small>練習ゲーム</small></span>
+  <button id="hdrBtn" title="上のバーをたたむ" aria-label="上のバーをたたむ" aria-expanded="true">︿</button>
   <label>シンボル</label><input id="symbol" value="XAUUSD" style="width:90px" list="symList">
   <datalist id="symList">
     <option value="XAUUSD"><option value="ETHUSDT"><option value="BTCUSDT"><option value="SOLUSDT"><option value="XRPUSDT">
   </datalist>
-  <label>足</label>
+  <label class="tflbl">足</label>
   <div class="seg" id="tfSeg">
     <button data-v="5m">5m</button><button data-v="15m">15m</button><button data-v="30m">30m</button><button data-v="1h" class="on">1h</button><button data-v="4h">4h</button><button data-v="1d">D</button>
   </div>
@@ -2403,7 +2411,7 @@ const STRUCT_COLOR = '#e8b34b', STRUCT_PIVOT = 5;
 const TF_NAME = {'5m':'5分足','15m':'15分足','30m':'30分足','1h':'1時間足','4h':'4時間足','1d':'日足'};
 let showStruct = true;
 try{ showStruct = localStorage.getItem('shadowtrading.struct') !== '0'; }catch(e){}
-let structCache = null, structBusy = false;
+let structCache = null;
 const structTf = ()=> (typeof window.bzStructTf === 'function' && window.bzStructTf()) || '1h';
 function buildStruct(arr, sec){
   const L = STRUCT_PIVOT, ev = [];
@@ -2417,30 +2425,41 @@ function buildStruct(arr, sec){
       if(isL) SL = {t:arr[j].time, p:arr[j].low,  b:false};
     }
     const c = arr[i];
-    if(SH && !SH.b && c.close > SH.p){ ev.push({k: trend==='down' ? 'CHoCH' : 'BOS', t1:SH.t, t2:c.time, p:SH.p, vis:c.time+sec}); trend = 'up';   SH.b = true; }
-    if(SL && !SL.b && c.close < SL.p){ ev.push({k: trend==='up'   ? 'CHoCH' : 'BOS', t1:SL.t, t2:c.time, p:SL.p, vis:c.time+sec}); trend = 'down'; SL.b = true; }
+    if(SH && !SH.b && c.close > SH.p){ ev.push({k: trend==='down' ? 'CHoCH' : 'BOS', up:true,  t1:SH.t, t2:c.time, p:SH.p, vis:c.time+sec}); trend = 'up';   SH.b = true; }
+    if(SL && !SL.b && c.close < SL.p){ ev.push({k: trend==='up'   ? 'CHoCH' : 'BOS', up:false, t1:SL.t, t2:c.time, p:SL.p, vis:c.time+sec}); trend = 'down'; SL.b = true; }
   }
   return ev;
 }
 // 今の時刻までに確定したもののうち、最新の CHoCH から先（なければ直近3本）
-function structFlow(){
+// 作戦の足の全イベントを1回だけ計算してキャッシュ（足・シンボル・データが変わったら作り直す）
+function ensureStruct(){
   const tf = structTf(), base = tfCache['5m'];
-  if(!base || !TF_SEC[tf]) return null;
+  if(!base || !base.length || !TF_SEC[tf]) return null;
   const key = `${loadedSym}|${tf}|${base.length}|${base[base.length-1].time}`;
   if(!structCache || structCache.key !== key){
-    if(!structBusy){
-      structBusy = true;
-      getTF(tf).then(arr=>{ structCache = {key, tf, ev: arr ? buildStruct(arr, TF_SEC[tf]) : []}; })
-               .finally(()=>{ structBusy = false; });
-      $('structSub').textContent = `作戦の足（${TF_NAME[tf]||tf}）の、今の流れだけを自動で描く`;
-    }
-    return null;
+    const arr = tfCache[tf] || (tfCache[tf] = aggregate(base, TF_SEC[tf]));
+    structCache = {key, tf, ev: buildStruct(arr, TF_SEC[tf])};
+    $('structSub').textContent = `作戦の足（${TF_NAME[tf]||tf}）の、今の流れだけを自動で描く`;
   }
+  return structCache;
+}
+// 時刻 t までに確定したイベントの件数
+function structCountAt(ev, t){
+  let lo = 0, hi = ev.length;
+  while(lo < hi){ const m = (lo+hi)>>1; if(ev[m].vis <= t) lo = m+1; else hi = m; }
+  return lo;
+}
+// 採点用：時刻 t までに確定した最新の CHoCH／BOS（なければ null、データがなければ undefined）
+function structLastAt(t){
+  const S = ensureStruct(); if(!S || t == null) return undefined;
+  const n = structCountAt(S.ev, t);
+  return n ? S.ev[n-1] : null;
+}
+function structFlow(){
+  if(!ensureStruct()) return null;
   const now = replayT != null ? replayT : (idx >= 0 && candles[idx] ? candles[idx].time + tfSec() : null);
   if(now == null) return null;
-  const ev = structCache.ev;
-  let lo = 0, hi = ev.length;   // vis <= now の件数
-  while(lo < hi){ const m = (lo+hi)>>1; if(ev[m].vis <= now) lo = m+1; else hi = m; }
+  const ev = structCache.ev, lo = structCountAt(ev, now);
   let s = lo - 1;
   while(s >= 0 && ev[s].k !== 'CHoCH') s--;
   return ev.slice(s >= 0 ? s : Math.max(0, lo-3), lo);
@@ -4117,6 +4136,24 @@ if(!sgProfile) sgOpenSetup();
   // スマホではRSIを最初は畳んでおく（⋯ → RSI で表示。採点・フィードバックには影響しない）
   if(mq.matches && showRSI) $('rsiBtn').click();
 })();
+// ---------- 上のバーの折りたたみ（PC・iPad）。選んだ状態はブラウザに保存 ----------
+(function(){
+  const B = document.body, btn = $('hdrBtn');
+  const apply = off => {
+    B.classList.toggle('hdr-off', off);
+    btn.textContent = off ? '﹀' : '︿';
+    const t = off ? '上のバーを開く' : '上のバーをたたむ';
+    btn.title = t; btn.setAttribute('aria-label', t); btn.setAttribute('aria-expanded', !off);
+  };
+  let off = false;
+  try{ off = localStorage.getItem('shadowtrading.hdr') === 'off'; }catch(e){}
+  apply(off);
+  btn.onclick = ()=>{
+    off = !B.classList.contains('hdr-off');
+    apply(off);
+    try{ localStorage.setItem('shadowtrading.hdr', off ? 'off' : 'on'); }catch(e){}
+  };
+})();
 // ---------- 右パネルの表示／非表示（PC・iPad）：チャート右端のタブ。選んだ状態はブラウザに保存 ----------
 (function(){
   const B = document.body, tab = $('sideTab');
@@ -4328,7 +4365,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
           <label for="bzBk">ブレイクの入り方</label>
           <select id="bzBk" class="fsel"><option value="close">抜けた足の確定で入る</option><option value="retest">抜けた後の戻り（リテスト）を待つ</option></select>
         </div>
-        <p class="note">トレンド中の逆張り（上昇中の売り、下降中の買い）は選べません。レンジは、ブレイクしたらその方向のトレンドとして扱います。</p>
+        <p class="note">反転（下降の「売りの反転で買う」・上昇の「買いの反転で売る」）は、サポート（レジスタンス）を抜けずに止まり、作戦の足の CHoCH が出てから入ります。レンジは、ブレイクしたらその方向のトレンドとして扱います。</p>
       </div>
     </section>
 
@@ -4371,15 +4408,16 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
   const TF_JA = {'1d':'日足','4h':'4時間足','1h':'1時間足','30m':'30分足','15m':'15分足','5m':'5分足','1m':'1分足'};
   const tfi = tf => TFS.findIndex(t=>t[0]===tf);
   const ENVS = [
-    {k:'up',    name:'上昇', acts:[['pull','押し目で買う'],['brk','高値ブレイクで買う'],['skip','見送る']]},
-    {k:'down',  name:'下降', acts:[['pull','戻りで売る'],['brk','安値ブレイクで売る'],['skip','見送る']]},
+    {k:'up',    name:'上昇', acts:[['pull','押し目で買う'],['brk','高値ブレイクで買う'],['rev','買いの反転で売る'],['skip','見送る']]},
+    {k:'down',  name:'下降', acts:[['pull','戻りで売る'],['brk','安値ブレイクで売る'],['rev','売りの反転で買う'],['skip','見送る']]},
     {k:'range', name:'レンジ', acts:[['fade','下限で買い・上限で売る'],['wait','ブレイクを待つ'],['fake','だまし（ヒゲで抜けて戻る）を狙う'],['skip','見送る']]},
   ];
   const TRIGS = [['engulf','包み足'],['pin','ピンバー'],['strong','強い実体足']];
   const B = {
     n:3, tfs:['4h','1h','15m'], mode:'declare',
-    plays:{up:['pull','brk'], down:['pull','brk'], range:['fade','wait']},
+    plays:{up:['pull','brk','rev'], down:['pull','brk','rev'], range:['fade','wait']},
     bk:'retest', trig:['engulf','pin','strong'], rr:'2', sl:'swing', tp:'2r',
+    revV1:true,   // 反転（買いの反転で売る・売りの反転で買う）を作戦表に入れた版
   };
   let decl = null;   // 今の宣言（up/down/range）
 
@@ -4420,6 +4458,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
       const cls = {up:'u',down:'d',range:'r'}[e.k];
       let s = acts.length ? `${T(1)}で「${acts.map(a=>actName(e.k,a)).join('」「')}」。` : '見送る（入らない）。';
       if(acts.includes('brk') || acts.includes('wait')) s += bk;
+      if(acts.includes('rev')) s += `反転は${T(1)}の CHoCH が出てから。`;
       if(e.k==='range' && acts.includes('wait')) s += '抜けたら、その方向のトレンドとして扱う。';
       li.push(`<span class="${cls}">${e.name}</span>：${s}`);
     }
@@ -4492,8 +4531,8 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
   // ---------- エントリー時の確認：設定した作戦表から選ぶ ----------
   // 方向（買い／売り）と相場の状態で、作戦表のうち使えるものだけを出す
   const PLAY_FOR = {
-    up:    {long:{pull:'押し目で買う', brk:'高値ブレイクで買う'}, short:{}},
-    down:  {short:{pull:'戻りで売る', brk:'安値ブレイクで売る'}, long:{}},
+    up:    {long:{pull:'押し目で買う', brk:'高値ブレイクで買う'}, short:{rev:'買いの反転で売る'}},
+    down:  {short:{pull:'戻りで売る', brk:'安値ブレイクで売る'}, long:{rev:'売りの反転で買う'}},
     range: {long:{fade:'下限で買う', wait:'上に抜けたので買う（ブレイク）', fake:'下へのだましの後に買う'},
             short:{fade:'上限で売る', wait:'下に抜けたので売る（ブレイク）', fake:'上へのだましの後に売る'}},
   };
@@ -4516,25 +4555,42 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
     if(!state){
       h += `<p class="ep-hint">相場を選ぶと、この${sideJa}で使える作戦が出ます。</p>`;
     }else{
-      const allowed = B.plays[state].filter(a=>a!=='skip' && PLAY_FOR[state][side][a]);
-      if(!allowed.length){
+      const opts = planOptions(state, side);
+      if(!opts.length){
         const why = !B.plays[state].length ? `${ENV_JA[state]}は「見送る」にしています。` :
-                    (state==='up' && side==='short') ? '上昇中の売りは逆張りなので、作戦表にありません。' :
-                    (state==='down' && side==='long') ? '下降中の買いは逆張りなので、作戦表にありません。' :
                     `${ENV_JA[state]}での${sideJa}は、作戦表で選んでいません。`;
         h += `<div class="ep-warn">${ENV_JA[state]}と${B.mode==='declare'?'宣言':'判定'}しています。${why}<br>入るなら、ルール違反として記録されます。</div>`;
       }
-      h += allowed.map(a=>`<button class="play" data-play="${a}"><b>${PLAY_FOR[state][side][a]}</b><small>${ENV_JA[state]}・${TF_JA[tfAt(1)]}</small></button>`).join('');
+      h += opts.map(o=>`<button class="play" data-play="${o.a}" data-side="${o.s}"><b>${PLAY_FOR[state][o.s][o.a]}</b><small>${ENV_JA[state]}・${TF_JA[tfAt(1)]}${
+        o.a==='rev' ? `・CHoCH${o.s==='long'?'↑':'↓'}後` : ''}${
+        o.s!==side ? `・<span style="color:${o.s==='long'?'var(--up)':'var(--down)'}">${o.s==='long'?'買い':'売り'}に切り替え</span>` : ''}</small></button>`).join('');
     }
-    h += `<button class="none${state && !B.plays[state].filter(a=>a!=='skip' && PLAY_FOR[state][side][a]).length ? ' ng':''}" data-play="">作戦外で入る（ルール違反として記録）</button>`;
+    h += `<button class="none${state && !planOptions(state, side).length ? ' ng':''}" data-play="">作戦外で入る（ルール違反として記録）</button>`;
     const trig = B.trig.map(t=>TRIGS.find(x=>x[0]===t)[1]).join('・');
-    h += `<p class="ep-sig">このバイアスの合図：<b>${TF_JA[tfAt(2)]}で${trig}が確定してから</b>／最低RR <b>1:${B.rr}</b>${B.plays.up.includes('brk')||B.plays.down.includes('brk')||B.plays.range.includes('wait') ? `／ブレイクは<b>${B.bk==='retest'?'戻りを待つ':'抜けた足の確定'}</b>` : ''}</p>`;
+    h += `<p class="ep-sig">このバイアスの合図：<b>${TF_JA[tfAt(2)]}で${trig}が確定してから</b>／最低RR <b>1:${B.rr}</b>${B.plays.up.includes('brk')||B.plays.down.includes('brk')||B.plays.range.includes('wait') ? `／ブレイクは<b>${B.bk==='retest'?'戻りを待つ':'抜けた足の確定'}</b>` : ''}${B.plays.up.includes('rev')||B.plays.down.includes('rev') ? `／反転は<b>サポート（レジスタンス）を抜けずに止まり、${TF_JA[tfAt(1)]}の CHoCH が出てから</b>` : ''}</p>`;
     $('planList').innerHTML = h;
     $('planList').querySelectorAll('[data-ep]').forEach(b=> b.onclick = ()=>{ decl = b.dataset.ep; syncDecl(); renderEntryPlan(); });
     $('planList').querySelectorAll('[data-play]').forEach(b=> b.onclick = ()=>{
-      if(pos && pos.plan){ pos.plan.pid = null; pos.plan.play = {state, side, play:b.dataset.play || null}; }
+      const s = b.dataset.side || side;
+      if(pos && s !== pos.side) flipPosition(s);   // 逆向きの作戦（反転）を選んだら、同じ価格で向きを切り替える
+      if(pos && pos.plan){ pos.plan.pid = null; pos.plan.play = {state, side:s, play:b.dataset.play || null}; }
       $('planModal').hidden = true;
     });
+  }
+  // その相場の作戦（選択肢）。上昇・下降は押したボタンの向きに関係なく全部出す（反転は逆向き）。レンジは押した向きだけ
+  function planOptions(state, side){
+    const out = [];
+    for(const a of B.plays[state]){
+      if(a==='skip') continue;
+      for(const s of (state==='range' ? [side] : ['long','short'])) if(PLAY_FOR[state][s][a]) out.push({a, s});
+    }
+    return out;
+  }
+  // 向きの切り替え：今のポジションを取り消して、同じ足・同じ価格で逆向きに建て直す（SL/TP はバイアスで置き直す）
+  function flipPosition(s){
+    const entry = pos.entry;
+    cancelPosition();
+    openAt(s, entry);
   }
   // 元のエントリー処理を使ったうえで、SL/TP をバイアスで置き直し、確認画面の中身を差し替える
   const _sgOnOpen = sgOnOpen;
@@ -4588,7 +4644,7 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
     add('B-2', true, '作戦表どおり', playOk,
       playOk ? `${ENV_JA[st]}で「${PLAY_FOR[st][side][pl.play]}」。作戦表どおりです。`
       : !st ? '相場が決まっていないので、作戦を選べていません。'
-      : (st==='up' && side==='short') || (st==='down' && side==='long') ? `${ENV_JA[st]}中の${sideJa}です。逆張りは作戦表にありません。`
+      : ((st==='up' && side==='short') || (st==='down' && side==='long')) && !B.plays[st].includes('rev') ? `${ENV_JA[st]}中の${sideJa}です。反転（${PLAY_FOR[st][side].rev}）は作戦表で選んでいません。`
       : !B.plays[st].length ? `${ENV_JA[st]}は「見送る」にしています。入らない相場でした。`
       : `作戦外で入っています。${ENV_JA[st]}での作戦：${allowed.map(a=>PLAY_FOR[st][side][a]).join('／') || 'なし'}。`);
     // B-3 入る足で、合図を見てから入った
@@ -4596,9 +4652,22 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
     const got = (side==='long' ? X.trigLong : X.trigShort).filter(x=>want.includes(x));
     const nearClose = Math.abs(p.entry - X.close) <= X.atr*0.3;
     const tfOk = P.tf===etf;
-    const sigOk = tfOk && got.length>0 && nearClose;
+    // 反転は、作戦の足で入る向きの CHoCH が出てから（その後の BOS も同じ流れなので可）
+    let chochOk = true, flowJa = '';
+    if(pl.play === 'rev'){
+      const L = structLastAt(p.entryT != null ? p.entryT : p.time);
+      if(L !== undefined){
+        const ev = (structCache.ev || []), n = L ? ev.indexOf(L) + 1 : 0;
+        let k = n - 1; while(k >= 0 && ev[k].k !== 'CHoCH') k--;
+        const ch = k >= 0 ? ev[k] : null;
+        chochOk = !!ch && ch.up === (side === 'long');
+        flowJa = `${TF_JA[tfAt(1)]}の CHoCH${side==='long'?'↑':'↓'}`;
+      }
+    }
+    const sigOk = tfOk && got.length>0 && nearClose && chochOk;
     add('B-3', true, '合図を見てから入った', sigOk,
-      sigOk ? `${TF_JA[etf]}で${got.join('・')}が確定してから入っています。`
+      !chochOk ? `反転は${flowJa}が出てから入ります。CHoCH の前に入っています（先回り）。`
+      : sigOk ? `${TF_JA[etf]}で${got.join('・')}が確定してから入っています。${pl.play==='rev' ? `（${flowJa}のあと）` : ''}`
       : !tfOk ? `${TF_JA[P.tf]||P.tf}で入っています。このバイアスの入る足は${TF_JA[etf]}です。`
       : !got.length ? `${TF_JA[etf]}の合図（${want.join('・')}）が出る前に入っています。1本の確定を待ちましょう。`
       : `合図（${got.join('・')}）は出ていますが、終値から離れた価格で入っています（先回りの指値）。`);
@@ -4786,6 +4855,12 @@ else if(!EMB) $('loadStatus').textContent = '未取得（Binance公開API・キ�
     if(sv && Array.isArray(sv.tfs) && sv.plays){
       Object.assign(B, sv);
       B.tfs = B.tfs.map(tf=> tfi(tf) >= 0 ? tf : '5m');
+      // 2026-10-18 反転を追加：前に保存したバイアスにも1回だけ足す（「見送る」にしている相場には足さない）
+      if(!sv.revV1){
+        ['up','down'].forEach(k=>{ if(B.plays[k].length && !B.plays[k].includes('rev')) B.plays[k].push('rev'); });
+        B.revV1 = true;
+        try{ localStorage.setItem('shadowtrading.bias', JSON.stringify(B)); }catch(e){}
+      }
       biasSaved = true;
     }
   }catch(e){}
