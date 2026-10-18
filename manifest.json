@@ -1,0 +1,16 @@
+{
+  "name": "Shadow｜XAU/USD 練習ゲーム",
+  "short_name": "Shadow",
+  "description": "バーリプレイでトレードを練習するゲーム（オフラインでも遊べる）",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#13121c",
+  "theme_color": "#1b1a27",
+  "lang": "ja",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/logo.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

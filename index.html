@@ -8,6 +8,12 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1b1a27">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Shadow">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script id="lwcLib">
@@ -4333,6 +4339,11 @@ if(!sgProfile) sgOpenSetup();
 // データがあれば、開いた時点でチャートを読み込む（XAUUSD は内蔵なのでダウンロード待ちなし）
 if(hasLocal($('symbol').value.trim().toUpperCase())) loadData().then(()=>{ if(typeof histReset==='function') histReset(); });
 else if(!EMB) setLoadMsg('未取得（Binance公開API・キー不要）');
+
+// オフライン対応（PWA）：sw.js がページ一式を端末に保存する（2回目からはネットなしでも開ける）。ファイルを直接開いたときは何もしない
+if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(e=>console.warn('オフライン対応の登録に失敗:', e)));
+}
 </script>
 <!-- ==================== 自分のバイアス（相場の状態 × 作戦）／エントリー確認／採点／ゲーム ==================== -->
 <style>
