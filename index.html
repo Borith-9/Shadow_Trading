@@ -343,12 +343,14 @@
     .mOnly{display:inline-flex;align-items:center;justify-content:center}
     #main{flex-direction:column}
 
-    /* 上のバー：足（常に表示）＋［描画］［⋯］。⋯で期間・読み込み・EMA・RSI などを展開 */
+    /* 上のバー：足（常に表示）＋［描画］［⋯］。⋯で 2段目＝期間、3段目＝シンボル（左）＋EMA・RSI・価格（右）を展開 */
     header{flex-wrap:wrap;overflow:visible;padding:6px 8px;gap:6px}
     #tfSeg{order:-3;flex:1 1 0;min-width:0;overflow-x:auto;scrollbar-width:none}
     #tfSeg button{flex:1 0 auto}
     #mToolsBtn{order:-2} #mMoreBtn{order:-1}
     #pdSeg{order:0}
+    #symBtn,#emaBtn,#rsiBtn,#pxBtn{order:1}   /* シンボルは3段目（1段目の足ボタンを狭めない） */
+    #loadStatus{order:2}
     #mToolsBtn,#mMoreBtn{width:38px;height:34px;padding:0}
     #mToolsBtn svg,#mMoreBtn svg{width:18px;height:18px}
     body:not(.m-more) header>:not(#tfSeg):not(.mOnly){display:none!important}
