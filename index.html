@@ -80,6 +80,19 @@
   #chart{width:100%;height:100%}
   #overlay{position:absolute;inset:0;z-index:3;pointer-events:none}
   #ohlc{position:absolute;top:8px;left:10px;z-index:5;font-family:var(--mono);font-size:11px;color:var(--muted);pointer-events:none}
+  #emaLeg{position:absolute;top:28px;left:10px;z-index:5;display:flex;gap:10px;font-family:var(--mono);font-size:11px;pointer-events:none}
+  #emaPop{position:fixed;z-index:60;width:260px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:0 14px 40px rgba(0,0,0,.55);font-size:12px}
+  #emaPop h4{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:600}
+  .emaRow{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--line)}
+  .emaDot{width:14px;height:14px;border-radius:50%;flex:none;border:2px solid rgba(255,255,255,.15)}
+  .emaLb{color:var(--muted);flex:1}
+  .emaRow input{width:68px;padding:5px 8px;font-size:13px;font-family:var(--mono)}
+  .emaSw{flex:none;width:34px;height:20px;padding:0;border-radius:10px;position:relative;background:var(--panel2)}
+  .emaSw::after{content:'';position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--muted);transition:left .15s}
+  .emaSw.on{background:var(--accent);border-color:var(--accent)}
+  .emaSw.on::after{left:17px;background:#1b1a27}
+  .emaX{flex:none;padding:2px 7px;font-size:14px;color:var(--muted);background:none;border-color:transparent}
+  #emaAdd{margin-top:10px;width:100%;padding:7px 0}
   #setHint{position:absolute;top:28px;left:10px;z-index:5;font-size:11px;color:var(--accent);display:none;pointer-events:none}
   #inlineEdit{position:absolute;z-index:8;display:none;background:rgba(19,18,28,.92);border:1px solid var(--accent);border-radius:4px;color:var(--text);font:500 12px 'IBM Plex Sans JP';padding:3px 6px;text-align:center;outline:none}
   #palette{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:7;display:none;gap:6px;background:rgba(27,26,39,.95);border:1px solid var(--line);border-radius:8px;padding:6px 8px;align-items:center}
@@ -412,6 +425,12 @@
 <body>
 <div id="progress"></div>
 <!-- トレーダー設定モーダル -->
+<!-- EMA の設定（［EMA ▾］で開く） -->
+<div id="emaPop" hidden role="dialog" aria-label="EMAの設定">
+  <h4>EMA（期間は自由に入力・最大5本）</h4>
+  <div id="emaRows"></div>
+  <button id="emaAdd">＋ EMAを追加</button>
+</div>
 <div class="modal" id="setupModal" hidden>
   <div class="sheet wide" role="dialog" aria-labelledby="setupTitle">
     <h2 id="setupTitle">どんなトレーダーとして練習しますか？</h2>
@@ -468,7 +487,7 @@
   <span style="color:var(--muted)">〜</span>
   <input type="date" id="dataTo" title="取得終了日（空欄=今日）" style="width:130px">
   <button id="loadBtn" title="選んだ期間でチャートを読み込み直す（描画とポジションはリセット）">読み込み</button>
-  <button id="emaBtn" title="EMA20の表示/非表示">EMA20</button>
+  <button id="emaBtn" title="EMAの設定（期間・表示・追加）" aria-haspopup="true">EMA ▾</button>
   <button id="rsiBtn" title="RSIダイバージェンスの表示/非表示">RSI</button>
   <button id="pxBtn" title="価格軸の表示/非表示">価格</button>
   <span id="loadStatus">内蔵データを準備中…</span>
@@ -525,6 +544,7 @@
     <div id="palette"></div>
     <div id="chart"></div>
     <canvas id="overlay"></canvas>
+    <div id="emaLeg" aria-label="表示中のEMA"></div>
     <input id="inlineEdit" autocomplete="off" spellcheck="false">
     <div id="mFabRow" class="mOnly">
       <button id="mPlayFab" aria-label="再生" disabled>▶</button>
@@ -1201,36 +1221,90 @@ const series = chart.addCandlestickSeries({
   upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,
   wickUpColor:'#26a69a',wickDownColor:'#ef5350',
 });
-// ---------- EMA20 ----------
-const emaSeries = chart.addLineSeries({color:'#e8b34b', lineWidth:1.5, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false});
+// ---------- EMA ----------
+// emaData＝EMA20（判定用。表示の設定に関係なく常に計算）
 const EMA_PERIOD = 20;
-let showEMA = true;
 let emaData = [];  // candlesと同じ長さ（先頭19本はnull）
-function computeEma(){
-  emaData = new Array(candles.length).fill(null);
-  if(candles.length < EMA_PERIOD) return;
+// 期間 n の EMA を candles と同じ長さで（先頭 n-1 本は null）
+function emaCalc(n){
+  const out = new Array(candles.length).fill(null);
+  if(candles.length < n) return out;
   let sum = 0;
-  for(let i=0;i<EMA_PERIOD;i++) sum += candles[i].close;
-  let ema = sum/EMA_PERIOD;
-  emaData[EMA_PERIOD-1] = {time:candles[EMA_PERIOD-1].time, value:ema};
-  const k = 2/(EMA_PERIOD+1);
-  for(let i=EMA_PERIOD;i<candles.length;i++){
+  for(let i=0;i<n;i++) sum += candles[i].close;
+  let ema = sum/n;
+  out[n-1] = {time:candles[n-1].time, value:ema};
+  const k = 2/(n+1);
+  for(let i=n;i<candles.length;i++){
     ema = candles[i].close*k + ema*(1-k);
-    emaData[i] = {time:candles[i].time, value:ema};
+    out[i] = {time:candles[i].time, value:ema};
   }
+  return out;
+}
+// 表示する EMA（複数・期間は自由・最大5本）。設定はブラウザに保存。初期値は EMA20 だけ
+const EMA_COLORS = ['#e8b34b','#26c6da','#ab47bc','#ef8a5a','#7ccf6f'];
+const EMA_MAX = 5;
+let emaList = [{p:20, on:true, c:EMA_COLORS[0]}];
+try{
+  const sv = JSON.parse(localStorage.getItem('shadowtrading.emas') || 'null');
+  if(Array.isArray(sv) && sv.length) emaList = sv.filter(e=>e && e.p>=2 && e.p<=500).slice(0, EMA_MAX).map(e=>({p:Math.round(e.p), on:e.on!==false, c:e.c || EMA_COLORS[0]}));
+}catch(e){}
+const emaSave = ()=>{ try{ localStorage.setItem('shadowtrading.emas', JSON.stringify(emaList.map(e=>({p:e.p, on:e.on, c:e.c})))); }catch(e){} };
+// 価格軸を隠していても本チャートと同じ目盛りに描く（priceScaleId を指定しないと別の目盛りになる）
+const emaNewSeries = c => chart.addLineSeries({priceScaleId:'right', color:c, lineWidth:1.5, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false});
+emaList.forEach(e=>{ e.series = emaNewSeries(e.c); e.data = []; });
+function computeEma(){
+  emaData = emaCalc(EMA_PERIOD);
+  emaList.forEach(e=>{ e.data = emaCalc(e.p); });
 }
 // 現在の表示範囲（リプレイ位置まで）に合わせてEMAを描画
 function refreshEma(){
-  if(!showEMA || !candles.length){ emaSeries.setData([]); return; }
   const upto = (idx>=0 ? idx : candles.length-1);
-  emaSeries.setData(emaData.slice(0, upto+1).filter(d=>d));
+  emaList.forEach(e=>{ e.series.setData(e.on && candles.length ? e.data.slice(0, upto+1).filter(d=>d) : []); });
+  renderEmaUi();
 }
-$('emaBtn').classList.add('on');
-$('emaBtn').onclick = ()=>{
-  showEMA = !showEMA;
-  $('emaBtn').classList.toggle('on', showEMA);
-  refreshEma();
+// 1本進めたとき（足 i のEMAだけ足す）
+function emaUpdateAt(i){ emaList.forEach(e=>{ if(e.on && e.data[i]) e.series.update(e.data[i]); }); }
+// 設定（［EMA ▾］で開く）と、チャート左上の一覧
+function renderEmaUi(){
+  const anyOn = emaList.some(e=>e.on);
+  $('emaBtn').classList.toggle('on', anyOn);
+  $('emaLeg').innerHTML = emaList.filter(e=>e.on).map(e=>`<span style="color:${e.c}">EMA${e.p}</span>`).join('');
+  if($('emaPop').hidden) return;
+  $('emaRows').innerHTML = emaList.map((e,k)=>`<div class="emaRow">
+      <span class="emaDot" style="background:${e.c}"></span><span class="emaLb">EMA</span>
+      <input type="number" min="2" max="500" step="1" value="${e.p}" data-k="${k}" aria-label="EMA${k+1}の期間">
+      <button class="emaSw${e.on?' on':''}" data-sw="${k}" role="switch" aria-checked="${e.on}" aria-label="EMA${e.p}の表示"></button>
+      <button class="emaX" data-x="${k}" aria-label="EMA${e.p}を削除">×</button></div>`).join('');
+  $('emaAdd').disabled = emaList.length >= EMA_MAX;
+  $('emaRows').querySelectorAll('input').forEach(inp=> inp.onchange = ()=>{
+    const e = emaList[+inp.dataset.k], v = Math.round(+inp.value);
+    if(!(v>=2 && v<=500)){ inp.value = e.p; return; }
+    e.p = v; e.data = emaCalc(v); emaSave(); refreshEma();
+  });
+  $('emaRows').querySelectorAll('[data-sw]').forEach(b=> b.onclick = ()=>{ const e = emaList[+b.dataset.sw]; e.on = !e.on; emaSave(); refreshEma(); });
+  $('emaRows').querySelectorAll('[data-x]').forEach(b=> b.onclick = ()=>{ const e = emaList.splice(+b.dataset.x, 1)[0]; chart.removeSeries(e.series); emaSave(); refreshEma(); });
+}
+$('emaAdd').onclick = ()=>{
+  if(emaList.length >= EMA_MAX) return;
+  const used = emaList.map(e=>e.c), c = EMA_COLORS.find(x=>!used.includes(x)) || EMA_COLORS[emaList.length % EMA_COLORS.length];
+  const p = [20,50,100,200,9].find(x=>!emaList.some(e=>e.p===x)) || 20;
+  const e = {p, on:true, c, series:emaNewSeries(c)};
+  e.data = emaCalc(p);
+  emaList.push(e); emaSave(); refreshEma();
 };
+$('emaBtn').onclick = e=>{
+  e.stopPropagation();
+  const pop = $('emaPop');
+  pop.hidden = !pop.hidden;
+  if(!pop.hidden){
+    const r = $('emaBtn').getBoundingClientRect();
+    pop.style.top = (r.bottom + 8) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left - 100, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+  }
+  renderEmaUi();
+};
+document.addEventListener('pointerdown', e=>{ if(!$('emaPop').hidden && !e.target.closest('#emaPop') && !e.target.closest('#emaBtn')) $('emaPop').hidden = true; });
+document.addEventListener('keydown', e=>{ if(e.code==='Escape') $('emaPop').hidden = true; });
 // ---------- 価格軸の表示／非表示 ----------
 // ローソク足の形で判断する練習なので、最初は非表示。選んだ状態はブラウザに保存（RSIの軸も合わせて横位置をそろえる）
 let showPx = false;
@@ -1645,7 +1719,7 @@ function completePartial(){
   candles[i] = full; partial = null; replayT = t1;
   computeEma();
   series.update(full);
-  if(showEMA && emaData[i]) emaSeries.update(emaData[i]);
+  emaUpdateAt(i);
   if(typeof rsiOnStep==='function' && showRSI) rsiOnStep();
   if(typeof sgOnStep==='function') sgOnStep(rest);
   if(pos && t1 > pos.endT) pos.endT = t1;
@@ -1661,7 +1735,7 @@ function step(){
   replayT = bar.time + tfSec();
   if(typeof sgOnStep==='function') sgOnStep(bar);
   series.update(bar);
-  if(showEMA && emaData[idx]) emaSeries.update(emaData[idx]);
+  emaUpdateAt(idx);
   if(typeof rsiOnStep==='function' && showRSI) rsiOnStep();
   if(pos && bar.time + barSec() > pos.endT) pos.endT = bar.time + barSec();  // 足がボックス幅を超えたら自動で広げる
   if(auto.on) autoProcessBar(idx, true);
@@ -2667,6 +2741,9 @@ function drawZones(){
   renderStruct();
   renderDrawings();
   ctx.restore();
+  // EMA の一覧は OHLC 表示のすぐ下（パネルの出し入れで OHLC の位置が変わるので合わせる）
+  const emaTop = ($('ohlc').offsetTop + 18) + 'px';
+  if($('emaLeg').style.top !== emaTop) $('emaLeg').style.top = emaTop;
   positionInline();
   updatePalette();
   requestAnimationFrame(drawZones);
