@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bar Replay｜XAU/USD 練習ゲーム</title>
+<title>Shadow｜XAU/USD 練習ゲーム</title>
 <link rel="icon" href="icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
@@ -40,8 +40,10 @@
 
   /* ---- ヘッダー ---- */
   header{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
-  header .logo{font-family:var(--score);font-weight:700;font-size:20px;color:var(--accent);letter-spacing:.5px;margin-right:6px;line-height:1}
-  header .logo small{font-family:'IBM Plex Sans JP';font-weight:500;font-size:11px;color:var(--muted);margin-left:6px;letter-spacing:0}
+  /* ロゴ「Shadow」：影でこっそり頑張る。文字は暗く、輪郭だけ金に光る */
+  header .logo{font-family:var(--score);font-weight:700;font-size:20px;color:#1b1a27;letter-spacing:.5px;margin-right:6px;line-height:1;
+    text-shadow:0 0 1px rgba(232,179,75,.95),0 0 6px rgba(232,179,75,.75),0 0 14px rgba(232,179,75,.35)}
+  header .logo small{font-family:'IBM Plex Sans JP';font-weight:500;font-size:11px;color:var(--muted);margin-left:6px;letter-spacing:0;text-shadow:none}
   header label{color:var(--muted);font-size:11px}
   #symbol{font-weight:600}
   #loadBtn{background:var(--accent);border-color:var(--accent);color:#1b1a27;font-weight:600}
@@ -447,7 +449,7 @@
   </div>
 </div>
 <header>
-  <span class="logo">Bar Replay<small>練習ゲーム</small></span>
+  <span class="logo">Shadow<small>練習ゲーム</small></span>
   <label>シンボル</label><input id="symbol" value="XAUUSD" style="width:90px" list="symList">
   <datalist id="symList">
     <option value="XAUUSD"><option value="ETHUSDT"><option value="BTCUSDT"><option value="SOLUSDT"><option value="XRPUSDT">
