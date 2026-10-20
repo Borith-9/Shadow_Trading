@@ -327,6 +327,53 @@
   #fbCmp .up{color:var(--up)} #fbCmp .dn{color:var(--down)}
   #fbCmp .tm{margin-top:8px;font-size:12px;line-height:1.6}
   #fbCmp .tm b{color:var(--accent)}
+  /* 一言メモ（決済後） */
+  #fbMemo{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(36,34,58,.55)}
+  #fbMemo label{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12px;font-weight:600;margin-bottom:6px}
+  #fbMemo label span{font-weight:400;font-size:11px;color:var(--muted)}
+  #fbMemoIn{width:100%;font-size:13px;padding:8px 10px}
+  #fbMemoSaved{margin-top:5px;font-size:11px;color:var(--up)}
+  #histBtn{margin-top:8px;width:100%}
+  /* 保存したトレード履歴（一覧） */
+  #histModal .sheet{width:min(1060px,100%);padding:18px 20px}
+  #histModal h2{font-size:16px;margin:0 0 4px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+  #histModal h2 small{font-size:11px;font-weight:400;color:var(--muted)}
+  #histSum{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+  #histSum>div{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-size:11px;color:var(--muted)}
+  #histSum b{display:block;font-family:var(--score);font-size:20px;color:var(--text)}
+  #histSum .goal{flex:1 1 260px}
+  #histSum .bar{height:6px;border-radius:3px;background:var(--line);margin-top:6px;overflow:hidden}
+  #histSum .bar i{display:block;height:100%;background:var(--accent)}
+  #histSum .ok{color:var(--up)}
+  #histFlt{display:flex;gap:6px;margin:4px 0 8px;flex-wrap:wrap}
+  #histFlt button{font-size:11px;padding:4px 10px}
+  #histFlt button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  #histTable{width:100%;border-collapse:collapse;font-size:12px}
+  #histTable th{color:var(--muted);font-weight:500;text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+  #histTable td{padding:6px;border-bottom:1px dashed var(--line);vertical-align:middle;white-space:nowrap}
+  #histTable td.num{font-family:var(--mono);text-align:right}
+  #histTable td.memo{white-space:normal;min-width:220px;width:30%}
+  #histModal .memoIn{width:100%;font-size:12px;padding:4px 8px}
+  #histModal .q{font-size:11px;border-radius:6px;padding:2px 7px;font-weight:600}
+  #histModal .q.gw{background:rgba(38,166,154,.15);color:var(--up)} #histModal .q.gl{background:rgba(111,143,245,.15);color:#6f8ff5}
+  #histModal .q.bw{background:var(--accent-soft);color:var(--accent)} #histModal .q.bl{background:rgba(239,83,80,.15);color:var(--down)}
+  #histModal .ng{color:var(--down);font-size:11px}
+  #histModal .up{color:var(--up)} #histModal .dn{color:var(--down)}
+  #histModal .empty{padding:24px 0;text-align:center;color:var(--muted);font-size:12px}
+  #histModal .note{font-size:11px;color:var(--muted);margin-top:10px}
+  #histModal .actions{justify-content:space-between}
+  #histModal .actions span{display:flex;gap:8px}
+  #histClear{color:var(--down);border-color:rgba(239,83,80,.5)}
+  #histCards{display:none;flex-direction:column;gap:8px}
+  #histCards .card{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--panel2);font-size:12px}
+  #histCards .row1{display:flex;justify-content:space-between;align-items:center;gap:6px}
+  #histCards .row2{color:var(--muted);font-size:11px;margin:3px 0 6px}
+  @media (max-width:760px){
+    #histModal{padding:0}
+    #histModal .sheet{padding:14px 12px;border-radius:0;max-height:100%;height:100%}
+    #histTable{display:none}
+    #histCards{display:flex}
+  }
   #fbList li small{display:block;color:var(--muted);font-size:11.5px}
   #fbList li.ng b{color:var(--down)}
   #fbList li .req{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:6px;font-weight:400}
@@ -504,10 +551,24 @@
     <div id="fbHead"></div>
     <div id="fbCtx"></div>
     <ul id="fbList"></ul>
+    <div id="fbMemo"><label for="fbMemoIn">一言メモ<span>負けたら一言振り返る（自動で保存・あとで一覧から直せる）</span></label>
+      <input id="fbMemoIn" maxlength="200" autocomplete="off" placeholder="例）NYの開始直前に入って、安値を刈られた">
+      <div id="fbMemoSaved" hidden>✓ この端末に保存しました</div></div>
     <div class="actions">
       <label class="chk"><input type="checkbox" id="fbAuto" checked> 決済のたびに表示</label>
       <button id="fbClose" class="primary">続ける（Enter）</button>
     </div>
+  </div>
+</div>
+<!-- 保存したトレード履歴（この端末のブラウザ） -->
+<div class="modal" id="histModal" hidden>
+  <div class="sheet" role="dialog" aria-labelledby="histTitle">
+    <h2 id="histTitle">トレード履歴 <small id="histSub"></small></h2>
+    <div id="histSum"></div>
+    <div id="histFlt" role="group" aria-label="絞り込み"><button data-f="all" class="on">すべて</button><button data-f="ng">ルール違反だけ</button><button data-f="lose">負けだけ</button><button data-f="memo">メモあり</button></div>
+    <div id="histBody"></div>
+    <p class="note">※ ブラウザの閲覧データを削除すると消えます。端末ごとに別々に保存されます（スマホとPCでは共有されません）。</p>
+    <div class="actions"><button id="histClear">履歴を消す</button><span><button id="histCsv">CSVで書き出す</button><button id="histClose" class="primary">閉じる</button></span></div>
   </div>
 </div>
 <header>
@@ -697,6 +758,7 @@
         </table>
       </div>
       <button id="csvBtn" disabled>CSVエクスポート</button>
+      <button id="histBtn">保存した履歴を見る（0件）</button>
     </div>
 
     <!-- 非表示：既存機能はそのまま動かすため要素だけ残す（既定値で動作） -->
@@ -4366,7 +4428,7 @@ function sgAfterClose(t){ if(t && t.fb && $('fbAuto').checked) sgShowFeedback(t)
 
 // モーダル表示中はチャートのショートカットを止める
 document.addEventListener('keydown', e=>{
-  const open = !$('fbModal').hidden || !$('planModal').hidden || !$('setupModal').hidden || ($('biasModal') && !$('biasModal').hidden);
+  const open = !$('fbModal').hidden || !$('planModal').hidden || !$('setupModal').hidden || ($('biasModal') && !$('biasModal').hidden) || !$('histModal').hidden;
   if(!open) return;
   if(e.target.tagName==='INPUT' && e.target.type!=='checkbox') return;
   // ツールのショートカット（Ctrl+D/S/R/B）は画面の上では効かせないが、ブラウザの再読み込み等も起こさない
@@ -4374,6 +4436,7 @@ document.addEventListener('keydown', e=>{
   e.stopImmediatePropagation();
   if(!$('fbModal').hidden && (e.code==='Enter' || e.code==='Escape' || e.code==='Space')){ e.preventDefault(); $('fbModal').hidden = true; }
   else if(!$('setupModal').hidden && e.code==='Escape'){ $('setupModal').hidden = true; }
+  else if(!$('histModal').hidden && e.code==='Escape'){ $('histModal').hidden = true; }
 }, true);
 
 // ---------- 成績表示の拡張 ----------
@@ -5019,10 +5082,10 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     const rows = [{key:'m1', label:lab.m1, ...sim(tg.close, ti+1)}];
     const nx = arr[ti+1];
     if(nx && nx.time <= end && (L ? nx.high >= stopPx : nx.low <= stopPx)) rows.push({key:'m2', label:lab.m2, ...sim(stopPx, ti+2)});
-    else rows.push({key:'m2', label:lab.m2, skip: nx && nx.time <= end ? '抜けず（入らない）' : '—'});
+    else rows.push({key:'m2', label:lab.m2, skip: nx && nx.time <= end ? '抜けず' : '—'});
     let f = -1;
     for(let k = ti+1; k <= ti+3 && k < arr.length && arr[k].time <= end; k++){ if(L ? arr[k].low <= mid : arr[k].high >= mid){ f = k; break; } }
-    rows.push(f >= 0 ? {key:'m3', label:lab.m3, ...sim(mid, f+1)} : {key:'m3', label:lab.m3, skip:'届かず（入らない）'});
+    rows.push(f >= 0 ? {key:'m3', label:lab.m3, ...sim(mid, f+1)} : {key:'m3', label:lab.m3, skip:'届かず'});
     // あなたの入り方（ツールが自動で判定）
     const atr = tg.atr || 1, near = (a,b)=>Math.abs(a-b) <= atr*0.1;
     const method = tg.ago===0 && near(p.entry, tg.close) ? 'm1' : tg.ago===1 && near(p.entry, stopPx) ? 'm2' : tg.ago<=3 && tg.ago>=1 && near(p.entry, mid) ? 'm3' : null;
@@ -5041,7 +5104,7 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   }
   function renderCmp(c){
     if(!c) return;
-    const f = v=>fmtP(v), rT = x=> x.skip ? '入らず ±0' : x.r == null ? (x.open != null ? `未決済 ${x.open>=0?'+':''}${x.open.toFixed(1)}R` : (x.note||'—')) : `${x.r>0?'+':''}${x.r.toFixed(1)}R`;
+    const f = v=>fmtP(v), rT = x=> x.skip ? '入らず' : x.r == null ? (x.open != null ? `未決済 ${x.open>=0?'+':''}${x.open.toFixed(1)}R` : (x.note||'—')) : `${x.r>0?'+':''}${x.r.toFixed(1)}R`;
     const cls = x=> x.skip || x.r == null ? '' : x.r > 0 ? 'up' : x.r < 0 ? 'dn' : '';
     const tmTxt = {late:`<b>遅い</b>（合図の終値より ${c.lateR.toFixed(2)}R 不利な価格で入った）`,
                    early:`<b>早い</b>（入った後に ${c.maeR.toFixed(2)}R 逆行してから動いた）`,
@@ -5157,7 +5220,7 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     return {style:P.style, pid:null, trend:X.trend.state, trendWhy:X.trend.why, items, ruleOk,
             quad: ruleOk ? (win?'gw':'gl') : (win?'bw':'bl'), mfeR, div:X.div||null,
             failed: items.filter(x=>x.ok===false).map(x=>x.id),
-            bias:{state:st, play:pl.play, side, toolState:X.trend.state},
+            bias:{state:st, play:pl.play, side, toolState:X.trend.state}, tf:P.tf,
             cmp: entryCompare(p, t, P)};
   };
   // フィードバックの見出し：スタイル名ではなく「自分のバイアス｜相場・作戦」
@@ -5242,6 +5305,128 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     if(G.on){ G.ended = true; G.last = t; renderGame(); if(t && t.fb) sgShowFeedback(t); return; }
     _sgAfterClose(t);
   };
+  // ---------- トレード履歴の保存（この端末のブラウザ。閲覧データを消すと消える・端末ごとに別） ----------
+  // 決済するたびに自動で保存（ゲームでもフリーでも）。一言メモは決済後の画面と一覧で書ける。CSVは保存した履歴を全部書き出す。
+  const HIST_KEY = 'shadowtrading.history', HIST_MAX = 2000;
+  const METHOD_JA = {m1:'①確定してすぐ', m2:'②次の足で抜け', m3:'③50%戻し'};
+  const TIMING_JA = {late:'遅い', early:'早い', wrong:'場所・方向', ok:'ちょうど'};
+  const esc = v=> String(v == null ? '' : v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let hist = [];
+  try{ hist = JSON.parse(localStorage.getItem(HIST_KEY) || '[]') || []; }catch(e){ hist = []; }
+  function histStore(){
+    for(let k = 0; k < 3; k++){
+      try{ localStorage.setItem(HIST_KEY, JSON.stringify(hist)); return true; }
+      catch(e){ if(hist.length < 10) return false; hist = hist.slice(Math.floor(hist.length/2)); }   // 容量がいっぱいなら古い方の半分を消す
+    }
+    return false;
+  }
+  function histUpdBtn(){
+    $('histBtn').textContent = `保存した履歴を見る（${hist.length}件）`;
+    $('csvBtn').disabled = !hist.length && !trades.length;
+  }
+  function histAdd(t){
+    if(!t) return;
+    const fb = t.fb || {}, b = fb.bias || {}, c = fb.cmp;
+    const plan = b.state ? `${ENV_JA[b.state]}・${b.play && PLAY_FOR[b.state][b.side] && PLAY_FOR[b.state][b.side][b.play] || '作戦外'}` : (fb.pid || '作戦外');
+    const late = c && c.rows && c.rows[0] ? (c.rows[0].label.match(/（(\d+)本遅れ）/) || [])[1] : null;
+    const rec = {id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), at: Date.now(),
+      sym: t.symbol || loadedSym, tf: fb.tf || t.tf || curTF, mode: G.on ? 'game' : 'free', game: G.on ? G.n : null,
+      side: t.side, entryTime: t.entryTime, entry: t.entry, exitTime: t.exitTime, exit: t.exit,
+      r: +(+t.r).toFixed(3), result: t.result || t.reason, pnlUsd: +(t.pnlUsd || 0).toFixed(2),
+      quad: fb.quad || null, ruleOk: fb.ruleOk == null ? null : !!fb.ruleOk, failed: fb.failed || [], plan,
+      method: c ? c.method : null, late: late ? +late : null, timing: c ? c.timing : null,
+      mae: c ? +c.maeR.toFixed(2) : null, mfe: c ? +c.mfeR.toFixed(2) : null, memo: ''};
+    t.hid = rec.id;
+    hist.push(rec);
+    if(hist.length > HIST_MAX) hist = hist.slice(-HIST_MAX);
+    histStore(); histUpdBtn();
+  }
+  const histFind = id=> hist.find(x=>x.id === id);
+  // 決済したら保存（そのあと、いつもどおりフィードバックを出す）
+  const _sgAfterCloseH = sgAfterClose;
+  sgAfterClose = function(t){ histAdd(t); _sgAfterCloseH(t); };
+  // 決済後の画面：一言メモ（書いたらすぐ保存）
+  const _sgShowFeedbackH = sgShowFeedback;
+  sgShowFeedback = function(t){
+    _sgShowFeedbackH(t);
+    const rec = t && t.hid ? histFind(t.hid) : null;
+    $('fbMemo').hidden = !rec;
+    $('fbMemoIn').dataset.id = rec ? rec.id : '';
+    $('fbMemoIn').value = rec ? rec.memo : '';
+    $('fbMemoSaved').hidden = true;
+  };
+  let memoTimer = null;
+  $('fbMemoIn').addEventListener('input', ()=>{
+    clearTimeout(memoTimer);
+    memoTimer = setTimeout(()=>{ const rec = histFind($('fbMemoIn').dataset.id); if(!rec) return; rec.memo = $('fbMemoIn').value.trim(); $('fbMemoSaved').hidden = !histStore(); }, 300);
+  });
+  $('fbMemoIn').addEventListener('keydown', e=>{ if(e.key === 'Enter' && !e.isComposing && e.keyCode !== 229){ e.preventDefault(); $('fbMemoIn').blur(); } });   // 日本語の変換を確定する Enter はそのまま
+  // 一覧
+  let histFilter = 'all';
+  function histRender(){
+    const n = hist.length, judged = hist.filter(x=>x.ruleOk != null), ok = judged.filter(x=>x.ruleOk).length;
+    const wins = hist.filter(x=>x.r > 0).length, sumR = hist.reduce((a,x)=>a + (x.r||0), 0);
+    const last = judged.slice(-50), ok50 = last.filter(x=>x.ruleOk).length, pct = judged.length ? Math.round(ok/judged.length*100) : 0, pct50 = last.length ? Math.round(ok50/last.length*100) : 0;
+    const clear = last.length >= 50 && pct50 >= 80;
+    $('histSub').textContent = `この端末のブラウザに自動で保存（${n}件）`;
+    $('histSum').innerHTML = `<div>トレード<b>${n}</b></div><div>勝ち／負け<b>${wins} / ${n-wins}</b></div>`
+      + `<div>累計<b class="${sumR>=0?'up':'dn'}">${sumR>=0?'+':''}${sumR.toFixed(1)}R</b></div><div>ルール遵守<b>${judged.length ? pct+'%' : '—'}</b></div>`
+      + `<div class="goal">実弾に移る目安：50回連続でルール遵守80%以上<b class="${clear?'ok':''}">${Math.min(last.length,50)} / 50回・直近の遵守 ${last.length ? pct50+'%' : '—'}${clear?'　✓ 目安に届いた':''}</b><div class="bar"><i style="width:${Math.min(100, last.length/50*100)}%"></i></div></div>`;
+    const list = hist.map((x,i)=>({x, no:i+1})).filter(({x})=> histFilter==='ng' ? x.ruleOk === false : histFilter==='lose' ? x.r < 0 : histFilter==='memo' ? !!x.memo : true).reverse();
+    const dt = ms=>{ const d = new Date(ms); return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+    const utc = t=> t != null ? new Date(t*1000).toISOString().slice(2,16).replace('T',' ') : '—';
+    const how = x=> x.method ? METHOD_JA[x.method] : x.late ? `${x.late}本遅れ` : '—';
+    const qb = x=> x.quad ? `<span class="q ${x.quad}">${esc(SG_QUAD[x.quad].label)}</span>` : '—';
+    const rr = x=> `<span class="${x.r>=0?'up':'dn'}">${x.r>=0?'+':''}${(+x.r).toFixed(1)}R</span>`;
+    const side = x=> x.side==='long' ? '<span class="up">買い</span>' : '<span class="dn">売り</span>';
+    const memo = x=> `<input class="memoIn" data-id="${x.id}" maxlength="200" value="${esc(x.memo)}" placeholder="一言メモ">`;
+    if(!list.length){ $('histBody').innerHTML = `<div class="empty">${n ? 'この条件のトレードはありません' : 'まだ保存したトレードはありません。決済すると、ここに自動で残ります。'}</div>`; return; }
+    $('histBody').innerHTML = `<table id="histTable"><thead><tr><th>#</th><th>保存日時</th><th>銘柄・足</th><th>場面（UTC）</th><th>売買</th><th>作戦</th><th>判定</th><th>結果</th><th>入り方</th><th>タイミング</th><th>一言メモ</th></tr></thead><tbody>${
+      list.map(({x,no})=>`<tr><td class="num">${no}</td><td>${dt(x.at)}</td><td>${esc(x.sym)} ${esc(x.tf)}</td><td>${utc(x.entryTime)}</td><td>${side(x)}</td><td>${esc(x.plan)}</td><td>${qb(x)}${x.failed.length?` <span class="ng">${esc(x.failed.join(' '))}</span>`:''}</td><td class="num">${rr(x)}</td><td>${how(x)}</td><td>${x.timing ? TIMING_JA[x.timing] : '—'}</td><td class="memo">${memo(x)}</td></tr>`).join('')}</tbody></table>`
+      + `<div id="histCards">${list.map(({x,no})=>`<div class="card"><div class="row1"><span><b>#${no}</b> ${side(x)} ${esc(x.plan)}</span><span>${qb(x)} <b>${rr(x)}</b></span></div><div class="row2">${esc(x.sym)} ${esc(x.tf)}｜場面 ${utc(x.entryTime)}｜入り方 ${how(x)}${x.timing ? '・' + TIMING_JA[x.timing] : ''}${x.failed.length ? `｜<span class="ng">${esc(x.failed.join(' '))}</span>` : ''}</div>${memo(x)}</div>`).join('')}</div>`;
+  }
+  // 一覧のメモ欄：書いたら保存（表と、スマホのカードの両方）
+  $('histBody').addEventListener('input', e=>{
+    const el = e.target.closest('.memoIn'); if(!el) return;
+    const rec = histFind(el.dataset.id); if(!rec) return;
+    rec.memo = el.value.trim(); histStore();
+    if($('fbMemoIn').dataset.id === rec.id) $('fbMemoIn').value = rec.memo;
+  });
+  $('histFlt').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    histFilter = b.dataset.f;
+    $('histFlt').querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
+    histRender();
+  });
+  $('histBtn').onclick = ()=>{ if(typeof stopPlay==='function') stopPlay(); histRender(); $('histModal').hidden = false; $('histModal').querySelector('.sheet').scrollTop = 0; };
+  $('histClose').onclick = ()=>{ $('histModal').hidden = true; };
+  $('histModal').addEventListener('click', e=>{ if(e.target === $('histModal')) $('histModal').hidden = true; });
+  $('histClear').onclick = ()=>{
+    if(!hist.length) return;
+    if(!confirm(`保存したトレード履歴（${hist.length}件）をすべて消しますか？\n一言メモも消えます。元に戻せません。`)) return;
+    hist = []; histStore(); histUpdBtn(); histRender();
+  };
+  // CSV：保存した履歴を全部（メモつき）
+  function histCsv(){
+    if(!hist.length) return;
+    const q = v=>{ const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+    const iso = t=> t != null ? new Date(t*1000).toISOString() : '';
+    const head = 'no,saved_at,symbol,tf,mode,game,side,plan,judge,rule_ok,failed_items,entry_time_utc,entry_price,exit_time_utc,exit_price,result,r_multiple,pnl_usd,entry_method,late_bars,timing,mae_r,mfe_r,memo\n';
+    const rows = hist.map((x,i)=>[i+1, new Date(x.at).toISOString(), x.sym, x.tf, x.mode, x.game||'', x.side, x.plan, x.quad ? SG_QUAD[x.quad].label : '', x.ruleOk==null ? '' : (x.ruleOk?1:0), x.failed.join(' '),
+      iso(x.entryTime), x.entry, iso(x.exitTime), x.exit, x.result, x.r, x.pnlUsd, x.method ? METHOD_JA[x.method] : '', x.late||'', x.timing ? TIMING_JA[x.timing] : '', x.mae==null?'':x.mae, x.mfe==null?'':x.mfe, x.memo].map(q).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob(['﻿' + head + rows], {type:'text/csv'}));
+    const d = new Date();
+    a.download = `shadow_history_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.csv`;
+    a.click();
+  }
+  $('histCsv').onclick = histCsv;
+  $('csvBtn').onclick = histCsv;
+  // ログの表を書き直した後も、CSV ボタンは保存した履歴があれば押せる
+  const _renderLogH = renderLog;
+  renderLog = function(){ _renderLogH(); histUpdBtn(); };
+  histUpdBtn();
+
   // 見送り：その場面では入らずに次へ
   const skip = ()=>{ if(!G.on || pos) return; G.skips++; newGame(); };
   $('gSkip').onclick = skip; $('gpSkip').onclick = skip;
@@ -5250,7 +5435,7 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   $('fbClose').onclick = ()=>{ $('fbModal').hidden = true; if(G.on && G.ended) newGame(); };
   // フィードバック表示中の Enter＝次のゲーム（Esc＝見直す）
   window.addEventListener('keydown', e=>{
-    if($('fbModal').hidden || !G.on || !G.ended) return;
+    if($('fbModal').hidden || !G.on || !G.ended || e.target.tagName==='INPUT') return;
     if(e.code==='Enter'){ e.preventDefault(); e.stopImmediatePropagation(); $('fbModal').hidden = true; newGame(); }
   }, true);
   // フィードバックの見出しにゲーム番号
