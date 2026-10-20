@@ -233,14 +233,25 @@
   .modeSeg button.on{background:var(--accent);color:#1b1a27}
   .modeSeg button:disabled:not(.on){opacity:.45;cursor:not-allowed}
   #freeNote{margin:8px 0 0;font-size:11px;line-height:1.6;color:var(--muted)}
-  #structBar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
-  #structBar>div{display:flex;flex-direction:column;gap:2px;min-width:0}
-  #structBar b{font-size:12px}
-  #structSub{font-size:10.5px;color:var(--muted)}
-  #structBtn{flex:none;width:40px;height:22px;padding:0;border-radius:11px;position:relative;background:var(--panel2)}
-  #structBtn::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:left .15s}
+  #structBar,#zoneBar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  #structBar>div,#zoneBar>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+  #structBar b,#zoneBar b{font-size:12px}
+  #structSub,#zoneSub{font-size:10.5px;color:var(--muted)}
+  #zoneBar b i{font-style:normal;color:#b388ff}
+  #structBtn,#zoneBtn{flex:none;width:40px;height:22px;padding:0;border-radius:11px;position:relative;background:var(--panel2)}
+  #structBtn::after,#zoneBtn::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:left .15s}
   #structBtn.on{background:var(--accent);border-color:var(--accent)}
-  #structBtn.on::after{left:21px;background:#1b1a27}
+  #structBtn.on::after,#zoneBtn.on::after{left:21px;background:#1b1a27}
+  #zoneBtn.on{background:#b388ff;border-color:#b388ff}
+  /* 1時間足のATRと、ゾーンの色の見本（チャート左上・EMAの一覧の下） */
+  #atrLeg{position:absolute;left:10px;top:48px;z-index:5;display:flex;flex-wrap:wrap;gap:5px;align-items:center;pointer-events:none;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  #atrLeg .p{background:rgba(27,26,39,.88);border:1px solid var(--line);border-radius:7px;padding:2px 7px}
+  #atrLeg .p b{color:var(--accent);font-weight:600}
+  #atrLeg .chip{font:500 10px 'IBM Plex Sans JP',sans-serif;border:1px solid;border-radius:6px;padding:1px 6px}
+  @media (max-width:760px), (max-height:500px){ #atrLeg .chip{display:none} }
+  /* ゾーンが壊れた時の通知 */
+  #zoneToast{position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:9;max-width:calc(100% - 24px);background:rgba(40,38,52,.97);border:1px solid #7d818c;border-left:4px solid var(--down);border-radius:10px;padding:8px 14px;font-size:13px;color:var(--text);box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none}
+  #zoneToast small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
 
   /* ---- 4象限 ---- */
   #quad{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
@@ -303,6 +314,19 @@
   #fbList{list-style:none;margin-top:6px}
   #fbList li{display:grid;grid-template-columns:22px 1fr;gap:6px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px;line-height:1.6}
   #fbList li .ic{font-size:13px}
+  /* 入り方の比較（決済後） */
+  #fbCmp{margin:12px 0 4px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:rgba(36,34,58,.55)}
+  #fbCmp h4{margin:0 0 6px;font-size:12px;color:var(--accent);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  #fbCmp h4 span{color:var(--muted);font-weight:500;font-size:11px}
+  #fbCmp table{width:100%;border-collapse:collapse;font-size:12px}
+  #fbCmp th{color:var(--muted);font-weight:500;text-align:right;padding:3px 4px;border-bottom:1px solid var(--line);white-space:nowrap}
+  #fbCmp td{text-align:right;padding:4px;font-family:var(--mono);white-space:nowrap}
+  #fbCmp th:first-child,#fbCmp td:first-child{text-align:left;font-family:inherit;white-space:normal}
+  #fbCmp tr.me td{background:rgba(232,179,75,.08)}
+  #fbCmp tr.best td:first-child::after{content:' ★';color:var(--accent)}
+  #fbCmp .up{color:var(--up)} #fbCmp .dn{color:var(--down)}
+  #fbCmp .tm{margin-top:8px;font-size:12px;line-height:1.6}
+  #fbCmp .tm b{color:var(--accent)}
   #fbList li small{display:block;color:var(--muted);font-size:11.5px}
   #fbList li.ng b{color:var(--down)}
   #fbList li .req{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:6px;font-weight:400}
@@ -556,6 +580,8 @@
     <div id="chart"></div>
     <canvas id="overlay"></canvas>
     <div id="emaLeg" aria-label="表示中のEMA"></div>
+    <div id="atrLeg" aria-label="1時間足のATR"></div>
+    <div id="zoneToast" role="status" hidden></div>
     <input id="inlineEdit" autocomplete="off" spellcheck="false">
     <div id="mFabRow" class="mOnly">
       <button id="mPlayFab" aria-label="再生" disabled>▶</button>
@@ -586,6 +612,10 @@
     <div id="structBar">
       <div><b>サポート：CHoCH／BOS</b><small id="structSub">作戦の足の、今の流れだけを自動で描く</small></div>
       <button id="structBtn" class="sw" role="switch" aria-checked="true" aria-label="CHoCH／BOSの自動表示"></button>
+    </div>
+    <div id="zoneBar">
+      <div><b>サポート：ゾーン <i>■</i> ツール</b><small id="zoneSub">4Hの山・谷のうち2回以上反応した所を、1Hで幅を決めて描く（SL候補つき）</small></div>
+      <button id="zoneBtn" class="sw" role="switch" aria-checked="false" aria-label="ツールのゾーンの表示"></button>
     </div>
     <!-- スコアボード -->
     <div class="box" id="board">
@@ -1715,7 +1745,7 @@ function mobCenter(){
   let bs = ts.options().barSpacing;   // 今のズーム（描画待ちなしで最新値が取れる）
   if(!(bs >= 2 && bs <= 40)){ bs = MOB_BAR_SPACING; ts.applyOptions({barSpacing: bs}); }
   chart.priceScale('right').applyOptions({autoScale:true});
-  ts.scrollToPosition(w/bs/2, false);
+  ts.scrollToPosition(w/bs*0.15, false);   // 最新の足を右から15%の位置に（右の余白を狭く）
 }
 $('startBtn').onclick = startReplay;
 
@@ -1978,6 +2008,7 @@ function pasteDrawing(){
   if(pt){ dl = t2l(pt.t) - t2l(d.p1.t); dp = pt.p - d.p1.p; }
   d.p1 = shiftPt(d.p1, dl, dp);
   if(d.p2) d.p2 = shiftPt(d.p2, dl, dp);
+  if(d.type==='rect') d.wt = nowT();
   drawings.push(d); selDraw = d;
   // 続けて貼るときは、今貼った位置を基準に少しずらす
   if(!pt) drawClip = JSON.parse(JSON.stringify(d));
@@ -2234,8 +2265,12 @@ function renderDrawings(){
         prevY = y; prevC = lv.c;
       }
     }else{
-      const x0=Math.min(a.x,b.x), y0=Math.min(a.y,b.y), w=Math.abs(b.x-a.x), h2=Math.abs(b.y-a.y);
-      const rc = drawColorOf(d);
+      // ボックス＝ゾーン：右端まで伸ばし、1時間足の終値で見張った状態の色とラベルを付ける
+      const x0=Math.min(a.x,b.x), y0=Math.min(a.y,b.y), h2=Math.abs(b.y-a.y);
+      const w = Math.max(Math.max(a.x,b.x), chart.timeScale().width()) - x0;
+      const zs = zoneState(d);
+      if(zs) zoneNotify(d, zs);
+      const rc = zoneColor(zs, drawColorOf(d));
       ctx.fillStyle = rgba(rc, .14);
       ctx.fillRect(x0,y0,w,h2);
       ctx.strokeStyle = rgba(rc, .9);
@@ -2248,7 +2283,15 @@ function renderDrawings(){
         ctx.font = '500 12px IBM Plex Sans JP';
         ctx.fillStyle = rgba(rc, .95);
         ctx.fillText(d.text, x0+w/2, y0+h2/2);
-      }else if(sel && !editing){
+      }
+      if(zs && !editing){
+        ctx.font = '600 11px IBM Plex Sans JP';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = rgba(rc, .95);
+        ctx.fillText(zoneLabel(zs), x0+w-8, y0+h2/2);
+        ctx.textAlign = 'center';
+      }
+      if(!d.text && sel && !editing){
         ctx.font = '11px IBM Plex Sans JP';
         ctx.fillStyle = rgba(rc, .45);
         ctx.fillText('+ ダブルクリックで文字入力', x0+w/2, y0+h2/2);
@@ -2597,6 +2640,171 @@ $('structBtn').onclick = ()=>{
   $('structBtn').setAttribute('aria-checked', showStruct);
 };
 
+// ---------- ゾーン（自分で描いたボックス）の見張り（バイアス.md「★ 2026-10-20 追加ルール」§3・§4） ----------
+// 1時間足の終値で判定：ヒゲで抜けて終値が中に戻る＝スイープ／終値が ATR×2割 以上外＝ブレイク／2割未満＝様子見（次の足で決める）。
+// ATR＝1時間足の直近14本の「高値−安値」の平均。見張りはボックスを描いた（動かした）時刻から。ボックスは右端まで伸ばして描く（15分足でも判断できる）。
+const ZONE_BRK = 0.2;
+const ZONE_COLOR = {break:'#7d818c', pending:'#f5c84b', sup:'#26a69a', res:'#ef5350', tool:'#b388ff'};
+const ZONE_LABEL = {watch:'見張り中', pending:'様子見・次の足待ち', break:'✕ ブレイク'};
+function h1Bars(){ const base = tfCache['5m']; if(!base || !base.length) return null; return tfCache['1h'] || (tfCache['1h'] = aggregate(base, 3600)); }
+const nowT = ()=> replayT != null ? replayT : (idx >= 0 && candles[idx] ? candles[idx].time + tfSec() : null);
+// 時刻 t までに確定した足の本数（足の長さ sec）
+function barsDoneAt(arr, sec, t){ let lo=0, hi=arr.length; while(lo<hi){ const m=(lo+hi)>>1; if(arr[m].time+sec <= t) lo=m+1; else hi=m; } return lo; }
+// k 本目（0始まり）までの直近14本の ATR
+function h1Atr(arr, k){ let s=0, n=0; for(let j=Math.max(0,k-13); j<=k; j++){ s += arr[j].high-arr[j].low; n++; } return n ? s/n : null; }
+const zoneMemo = new WeakMap();   // 判定のキャッシュ（描画データには入れない＝元に戻すの対象にしない）
+function zoneState(d){
+  const arr = h1Bars(), now = nowT(); if(!arr || now == null) return null;
+  const lo = Math.min(d.p1.p, d.p2.p), hi = Math.max(d.p1.p, d.p2.p);
+  const wt = d.wt != null ? d.wt : Math.max(d.p1.t, d.p2.t);
+  const n = barsDoneAt(arr, 3600, now);
+  const key = `${loadedSym}|${arr.length}|${n}|${lo}|${hi}|${wt}`;
+  const m = zoneMemo.get(d); if(m && m.key === key) return m;
+  let side = null, st = 'watch', at = null, pend = false, close = null, mg = 0;
+  for(let k = barsDoneAt(arr, 3600, wt); k < n; k++){
+    const c = arr[k]; mg = (h1Atr(arr, k) || 0) * ZONE_BRK;
+    if(!side){ if(c.close < lo) side = 'res'; else if(c.close > hi) side = 'sup'; else continue; }
+    if(pend){ const out = side==='res' ? c.close > hi : c.close < lo; st = out ? 'break' : 'sweep'; at = c.time; close = c.close; pend = false; if(out) break; continue; }
+    if(side==='res'){
+      if(c.close > hi + mg){ st='break'; at=c.time; close=c.close; break; }
+      if(c.close > hi){ st='pending'; at=c.time; close=c.close; pend=true; continue; }
+      if(c.high > hi){ st='sweep'; at=c.time; close=c.close; }
+    }else{
+      if(c.close < lo - mg){ st='break'; at=c.time; close=c.close; break; }
+      if(c.close < lo){ st='pending'; at=c.time; close=c.close; pend=true; continue; }
+      if(c.low < lo){ st='sweep'; at=c.time; close=c.close; }
+    }
+  }
+  const r = {key, st, side, at, close, mg, lo, hi};
+  zoneMemo.set(d, r);
+  return r;
+}
+function zoneColor(z, fallback){
+  if(!z || z.st==='watch') return fallback;
+  return z.st==='sweep' ? (z.side==='sup' ? ZONE_COLOR.sup : ZONE_COLOR.res) : ZONE_COLOR[z.st];
+}
+function zoneLabel(z){
+  const mob = isMob();   // スマホは画面が狭いので短く
+  if(z.st==='sweep') return mob ? (z.side==='sup' ? 'スイープ↑' : 'スイープ↓') : z.side==='sup' ? 'スイープ（下に抜けて戻った）→ 上に行きやすい' : 'スイープ（上に抜けて戻った）→ 下に行きやすい';
+  if(mob && z.st==='pending') return '様子見';
+  return ZONE_LABEL[z.st] || '';
+}
+// ブレイクしたら通知（リプレイを進めて、その時にブレイクに変わった時だけ）
+const zoneSeen = new WeakMap();
+let zoneToastTimer = null;
+function zoneNotify(d, z){
+  const now = nowT(), prev = zoneSeen.get(d);
+  zoneSeen.set(d, {st:z.st, now});
+  if(!prev || z.st !== 'break' || prev.st === 'break' || !(now > prev.now)) return;
+  const el = $('zoneToast');
+  el.innerHTML = `⚠ ゾーン ${fmtP(z.lo)}〜${fmtP(z.hi)} が壊れました<small>1時間足の終値 ${fmtP(z.close)} が、${z.side==='sup'?'下限':'上限'}の外で確定（ATRの2割＝${z.mg.toFixed(1)}）</small>`;
+  el.hidden = false;
+  clearTimeout(zoneToastTimer); zoneToastTimer = setTimeout(()=>{ el.hidden = true; }, 5000);
+}
+
+// ---------- サポート：ゾーン（ツール）。バイアス.md §2 の手順でツールが引く。CHoCH／BOS と同じく、いつでも ON/OFF ----------
+// 4時間足の直近の山・谷（左右2本）を3つずつ＋上抜けした元レジスタンスの山 → 同じ価格帯（±1時間足ATR×0.75）で2回以上反応したものだけ
+// → 1時間足で幅（実体の端〜ヒゲ先）→ ATRの半分を超えたら反応が多いところに絞る（1本だけのヒゲは無視）→ ヒゲ先の少し外（ATR×0.1）が SL候補。
+let showToolZones = false;
+try{ showToolZones = localStorage.getItem('shadowtrading.tzone') === '1'; }catch(e){}
+let toolZoneMemo = null;
+function toolZones(){
+  const arr1 = h1Bars(), base = tfCache['5m'], now = nowT(); if(!arr1 || !base || now == null) return [];
+  const n1 = barsDoneAt(arr1, 3600, now);
+  const key = `${loadedSym}|${arr1.length}|${n1}`;
+  if(toolZoneMemo && toolZoneMemo.key === key) return toolZoneMemo.zones;
+  const arr4 = tfCache['4h'] || (tfCache['4h'] = aggregate(base, 14400));
+  const n4 = barsDoneAt(arr4, 14400, now), h4 = arr4.slice(Math.max(0, n4-120), n4);
+  let zones = [];
+  if(n1 >= 15 && h4.length >= 10){
+    const atr = h1Atr(arr1, n1-1), px = arr1[n1-1].close, tol = atr*0.75, maxW = atr*0.5;
+    const piv = (i, lr, k)=>{ if(i<lr || i>=h4.length-lr) return false; for(let j=i-lr;j<=i+lr;j++){ if(j!==i && (k==='H' ? h4[j].high>h4[i].high : h4[j].low<h4[i].low)) return false; } return true; };
+    const P = []; h4.forEach((c,i)=>{ if(piv(i,2,'H')) P.push({i,t:c.time,p:c.high,k:'H'}); if(piv(i,2,'L')) P.push({i,t:c.time,p:c.low,k:'L'}); });
+    const cand = P.filter(x=>x.k==='H').slice(-3).concat(P.filter(x=>x.k==='L').slice(-3));
+    P.filter(x=>x.k==='H' && x.p < px).slice(-2).forEach(x=>{ if(!cand.includes(x)) cand.push(x); });
+    // 1時間足で、その4時間足の中の一番高い（安い）足：実体の端〜ヒゲ先
+    const bandOf = x=>{ let b = null;
+      for(let k = barsDoneAt(arr1, 3600, x.t); k < n1 && arr1[k].time < x.t + 14400; k++){ const c = arr1[k]; if(c.time < x.t) continue; if(!b || (x.k==='H' ? c.high > b.high : c.low < b.low)) b = c; }
+      return !b ? null : x.k==='H' ? [Math.max(b.open,b.close), b.high] : [b.low, Math.min(b.open,b.close)]; };
+    const zs = [];
+    for(const x of cand){
+      const m = [x];
+      h4.forEach((c,j)=>{ if(Math.abs(j-x.i) <= 1) return;
+        if(piv(j,1,'H') && Math.abs(c.high-x.p) <= tol) m.push({i:j,t:c.time,p:c.high,k:'H'});
+        else if(piv(j,1,'L') && Math.abs(c.low-x.p) <= tol) m.push({i:j,t:c.time,p:c.low,k:'L'}); });
+      if(m.length < 2) continue;
+      const bands = m.map(bandOf).filter(Boolean); if(!bands.length) continue;
+      let lo = Math.min(...bands.map(b=>b[0])), hi = Math.max(...bands.map(b=>b[1]));
+      if(hi - lo > maxW){ let best = null;
+        for(const v of bands.flat()) for(const x0 of [v, v-maxW]){ const x1 = x0+maxW, c = bands.filter(b=>b[1]>=x0 && b[0]<=x1).length; if(!best || c > best.c) best = {c, lo:x0, hi:x1}; }
+        lo = best.lo; hi = best.hi; }
+      zs.push({lo, hi, n:m.length, t0:Math.min(...m.map(y=>y.t)), k:x.k});
+    }
+    // 重なるものはまとめる。すき間がATRの半分未満の2つは、反応が多い方（同じなら今の価格に近い方）を残す
+    zs.sort((a,b)=>a.lo-b.lo);
+    const out = [], dist = q=>Math.abs((q.lo+q.hi)/2 - px);
+    for(const z of zs){
+      const L = out[out.length-1];
+      if(L && z.lo <= L.hi){ L.lo = Math.min(L.lo,z.lo); L.hi = Math.max(L.hi,z.hi); L.n = Math.max(L.n,z.n); L.t0 = Math.min(L.t0,z.t0); continue; }
+      if(L && z.lo - L.hi < maxW){ if(z.n > L.n || (z.n === L.n && dist(z) < dist(L))) out[out.length-1] = {...z}; continue; }
+      out.push({...z});
+    }
+    const role = z=> z.hi < px ? 'sup' : z.lo > px ? 'res' : (z.k==='L' ? 'sup' : 'res');
+    zones = out.filter(z=>z.hi < px).sort((a,b)=>b.hi-a.hi).slice(0,3)
+      .concat(out.filter(z=>z.lo > px).sort((a,b)=>a.lo-b.lo).slice(0,3), out.filter(z=>z.lo <= px && z.hi >= px))
+      .map(z=>{ const r = role(z); return {...z, role:r, inside: z.lo <= px && z.hi >= px, sl: r==='sup' ? z.lo - atr*0.1 : z.hi + atr*0.1}; });
+  }
+  toolZoneMemo = {key, zones};
+  return zones;
+}
+function renderToolZones(){
+  if(!showToolZones || !candles.length || idx < 0) return;
+  const zs = toolZones(); if(!zs.length) return;
+  const tw = chart.timeScale().width(), c = ZONE_COLOR.tool, mob = isMob();
+  ctx.save();
+  ctx.font = '500 11px IBM Plex Sans JP';
+  for(const z of zs){
+    const a = pt2xy({t:z.t0, p:z.hi}), b = pt2xy({t:z.t0, p:z.lo}); if(!a || !b) continue;
+    const x0 = Math.max(0, a.x), y0 = a.y, h = Math.max(2, b.y - a.y), w = tw - x0; if(w <= 0) continue;
+    ctx.fillStyle = rgba(c, .12); ctx.fillRect(x0, y0, w, h);
+    ctx.strokeStyle = rgba(c, .85); ctx.lineWidth = 1.2; ctx.setLineDash([5,3]);
+    ctx.strokeRect(x0+.5, y0+.5, w-1, h-1);
+    const ys = series.priceToCoordinate(z.sl);
+    if(ys != null){
+      ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(x0, ys+.5); ctx.lineTo(tw, ys+.5); ctx.stroke();
+      ctx.textAlign = 'right'; ctx.textBaseline = z.role==='sup' ? 'top' : 'bottom'; ctx.fillStyle = rgba(c, .9);
+      ctx.fillText(`${mob?'SL':'SL候補'} ${fmtP(z.sl)}`, tw-6, z.role==='sup' ? ys+3 : ys-3);
+    }
+    ctx.setLineDash([]);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = rgba(c, .95);
+    ctx.fillText(mob ? `ツール ${z.lo.toFixed(0)}〜${z.hi.toFixed(0)}（${z.n}回）` : `ツール：${z.role==='sup'?'サポート':'レジスタンス'}${z.inside?'（価格が中）':''} ${fmtP(z.lo)}〜${fmtP(z.hi)}（反応${z.n}回）`, x0+6, y0+h/2);
+  }
+  ctx.restore();
+}
+$('zoneBtn').classList.toggle('on', showToolZones);
+$('zoneBtn').setAttribute('aria-checked', showToolZones);
+$('zoneBtn').onclick = ()=>{
+  showToolZones = !showToolZones;
+  try{ localStorage.setItem('shadowtrading.tzone', showToolZones ? '1' : '0'); }catch(e){}
+  $('zoneBtn').classList.toggle('on', showToolZones);
+  $('zoneBtn').setAttribute('aria-checked', showToolZones);
+};
+// 1時間足の ATR（と、ゾーンがある時は色の見本）をチャート左上に出す
+let atrLegKey = '';
+function updateAtrLeg(){
+  const el = $('atrLeg'), arr = h1Bars(), now = nowT();
+  const n = arr && now != null ? barsDoneAt(arr, 3600, now) : 0;
+  const hasZones = showToolZones || drawings.some(d=>d.type==='rect');
+  const key = `${loadedSym}|${arr?arr.length:0}|${n}|${hasZones}|${showToolZones}`;
+  if(key === atrLegKey) return;
+  atrLegKey = key;
+  if(n < 14){ el.innerHTML = ''; return; }
+  const atr = h1Atr(arr, n-1);
+  el.innerHTML = `<span class="p">1H ATR <b>${atr.toFixed(1)}</b>　2割 <b>${(atr*ZONE_BRK).toFixed(1)}</b></span>` + (!hasZones ? '' :
+    [[ZONE_COLOR.pending,'様子見・次の足待ち'],[ZONE_COLOR.sup,'スイープ'],[ZONE_COLOR.break,'ブレイク']].concat(showToolZones ? [[ZONE_COLOR.tool,'ツールのゾーン']] : [])
+      .map(([c,t])=>`<span class="chip" style="color:${c};border-color:${c};background:${c}22">${t}</span>`).join(''));
+}
+
 function drawZones(){
   const dpr = window.devicePixelRatio || 1;
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -2759,11 +2967,16 @@ function drawZones(){
   for(const b of closedBoxes) drawPosBox(b, false);
   if(pos) drawPosBox(pos, true);
   renderStruct();
+  renderToolZones();
   renderDrawings();
   ctx.restore();
   // EMA の一覧は OHLC 表示のすぐ下（パネルの出し入れで OHLC の位置が変わるので合わせる）
   const emaTop = ($('ohlc').offsetTop + 18) + 'px';
   if($('emaLeg').style.top !== emaTop) $('emaLeg').style.top = emaTop;
+  // 1時間足の ATR は EMA の一覧の下
+  updateAtrLeg();
+  const atrTop = ($('emaLeg').offsetTop + ($('emaLeg').offsetHeight || 14) + 4) + 'px';
+  if($('atrLeg').style.top !== atrTop) $('atrLeg').style.top = atrTop;
   positionInline();
   updatePalette();
   requestAnimationFrame(drawZones);
@@ -2800,6 +3013,7 @@ wrap.addEventListener('pointerdown', e=>{
     }
     if(!pendingDraw){
       const d = {type:drawTool, p1:p, p2:{...p}};
+      if(drawTool==='rect') d.wt = nowT();   // この時刻からゾーンとして見張る
       if(drawTool!=='fib' && curColors[drawTool]) d.color = curColors[drawTool];
       drawings.push(d); selDraw = d;
       pendingDraw = {d, startX:x, startY:y};
@@ -2890,6 +3104,9 @@ window.addEventListener('pointerup', e=>{
     return;
   }
   if(drag || drawDrag){
+    // ボックスを動かした・大きさを変えたら、その時刻から見張り直す
+    const D = drawDrag;
+    if(D && D.d.type==='rect' && (D.d.p1.t!==D.p1.t || D.d.p1.p!==D.p1.p || (D.p2 && (D.d.p2.t!==D.p2.t || D.d.p2.p!==D.p2.p)))) D.d.wt = nowT();
     drag = null; drawDrag = null;
     chart.applyOptions({handleScroll:true, handleScale:true});
   }
@@ -4012,6 +4229,8 @@ function sgOnStep(bar){
   if(Math.abs(pos.entry-pos.sl) > P.locked.risk*1.0005) P.slWidened = true;
   const fav = pos.side==='long' ? bar.high-pos.entry : pos.entry-bar.low;
   if(fav > P.mfe) P.mfe = fav;
+  const adv = pos.side==='long' ? pos.entry-bar.low : bar.high-pos.entry;
+  if(adv > (P.mae||0)) P.mae = adv;
 }
 
 // ---------- 決済時：採点（バイアス.md §6） ----------
@@ -4663,7 +4882,7 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   const declHtml = `<div id="declBox"><div class="hd"><b id="declTitle"></b><span>見て決めたら押す</span></div>
       <div class="declSeg" role="group" aria-label="相場の宣言"><button data-s="up">上昇</button><button data-s="down">下降</button><button data-s="range">レンジ</button></div>
       <div id="declPlays"></div></div>`;
-  $('structBar').insertAdjacentHTML('afterend', declHtml);   // 並び：自分のバイアス → サポート（CHoCH／BOS）→ 今の4Hは？
+  $('zoneBar').insertAdjacentHTML('afterend', declHtml);   // 並び：自分のバイアス → サポート（CHoCH／BOS・ゾーン）→ 今の4Hは？
   $('chartWrap').insertAdjacentHTML('beforeend', `<div id="declPill" role="group" aria-label="相場の宣言"><span class="lbl" id="declPillTf"></span><button data-s="up">上昇</button><button data-s="down">下降</button><button data-s="range">レンジ</button></div>`);
   function syncDecl(){
     const show = B.mode==='declare';
@@ -4761,8 +4980,81 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     if(!sgProfile) sgProfile = {style:'swing', patterns:[]};
     _sgOnOpen();
     if(pos && !pos.auto) applyBiasSLTP();
+    if(pos && pos.plan) pos.plan.trig = findTrig(idx, pos.side);
     renderEntryPlan();
   };
+  // 合図の足：入った足から2本前までさかのぼって、このバイアスの合図（包み足・ピンバー・強い実体足）を探す
+  // （足が進んでから［買い］［売り］を押しても、見て入った合図の足で判定する）
+  function findTrig(i, side){
+    const want = B.trig.map(k=>TRIG_JA[k]);
+    for(let ago = 0; ago <= 2; ago++){
+      const j = i - ago; if(j < 2) break;
+      const kinds = sgTriggers(j, side).filter(x=>want.includes(x));
+      if(kinds.length){ const c = candles[j]; return {ago, time:c.time, open:c.open, high:c.high, low:c.low, close:c.close, kinds, atr:sgAtr(candles, j)}; }
+    }
+    return null;
+  }
+  const hmUTC = t=> t != null ? new Date(t*1000).toISOString().slice(11,16) : '—';
+  // 入り方の比較：同じ合図・同じSL・TPは2R。決済した時刻までの足だけで計算する（未来は見ない）
+  // ①合図の足の終値 ②次の1本だけ、合図の足の高値（安値）を抜けたら ③合図の足の50%に指値（3本以内）
+  function entryCompare(p, t, P){
+    const tg = P.trig; if(!tg || !P.locked) return null;
+    const sec = TF_SEC[P.tf], base = tfCache['5m']; if(!sec || !base) return null;
+    const arr = tfCache[P.tf] || (tfCache[P.tf] = aggregate(base, sec));
+    const ti = arr.findIndex(c=>c.time===tg.time); if(ti < 0) return null;
+    const L = p.side==='long', SL = P.locked.sl, end = t.exitTime;
+    const sim = (entry, from)=>{
+      const risk = L ? entry-SL : SL-entry; if(!(risk > 0)) return {entry, r:null, note:'SLより不利で入れない'};
+      const tp = entry + (L?1:-1)*risk*2; let mae = 0, last = null;
+      for(let k = from; k < arr.length && arr[k].time <= end; k++){
+        const c = arr[k]; last = c;
+        mae = Math.max(mae, L ? entry-c.low : c.high-entry);
+        if(L ? c.low <= SL : c.high >= SL) return {entry, r:-1, exit:c.time, mae:Math.min(1, mae/risk)};
+        if(L ? c.high >= tp : c.low <= tp) return {entry, r:2, exit:c.time, mae:mae/risk};
+      }
+      return {entry, r:null, open: last ? (L ? last.close-entry : entry-last.close)/risk : 0, mae:mae/risk};
+    };
+    const stopPx = L ? tg.high : tg.low, mid = (tg.high+tg.low)/2;
+    const lab = {m1:'①確定してすぐ', m2: L ? '②次の足で高値抜け' : '②次の足で安値抜け', m3:'③50%戻しの指値'};
+    const rows = [{key:'m1', label:lab.m1, ...sim(tg.close, ti+1)}];
+    const nx = arr[ti+1];
+    if(nx && nx.time <= end && (L ? nx.high >= stopPx : nx.low <= stopPx)) rows.push({key:'m2', label:lab.m2, ...sim(stopPx, ti+2)});
+    else rows.push({key:'m2', label:lab.m2, skip: nx && nx.time <= end ? '抜けず（入らない）' : '—'});
+    let f = -1;
+    for(let k = ti+1; k <= ti+3 && k < arr.length && arr[k].time <= end; k++){ if(L ? arr[k].low <= mid : arr[k].high >= mid){ f = k; break; } }
+    rows.push(f >= 0 ? {key:'m3', label:lab.m3, ...sim(mid, f+1)} : {key:'m3', label:lab.m3, skip:'届かず（入らない）'});
+    // あなたの入り方（ツールが自動で判定）
+    const atr = tg.atr || 1, near = (a,b)=>Math.abs(a-b) <= atr*0.1;
+    const method = tg.ago===0 && near(p.entry, tg.close) ? 'm1' : tg.ago===1 && near(p.entry, stopPx) ? 'm2' : tg.ago<=3 && tg.ago>=1 && near(p.entry, mid) ? 'm3' : null;
+    const risk = P.locked.risk || 1, maeR = (P.mae||0)/risk, mfeR = (P.mfe||0)/risk;
+    const lateR = (L ? p.entry-tg.close : tg.close-p.entry)/risk;
+    const me = {key:'me', label: method ? `あなた＝${lab[method]}` : tg.ago ? `あなた（${tg.ago}本遅れ）` : 'あなた', entry:p.entry, r:t.r, exit:t.exitTime, mae: t.r <= -0.99 ? Math.min(1, maeR) : maeR};
+    // 一番よかった入り方（入らずに済んだ＝0R も比べる）。同じRなら早く決着した方、それも同じならあなた
+    const val = x=> x.skip ? 0 : x.r, R2 = v=>Math.round(v*100)/100;
+    const done = [me].concat(rows).filter(x=>val(x) != null);
+    const cmpv = (b, a)=> (R2(val(b)) - R2(val(a))) || ((a.exit||Infinity) - (b.exit||Infinity));   // 0より大きい＝b の方がよい（同じRなら早く決着した方）
+    const best = done.reduce((a,b)=> cmpv(b, a) > 0 ? b : a, me);
+    const better = best.key !== 'me' && best.key !== method;
+    // 入るタイミング：合図の終値より0.3R以上不利なら「遅い」、入った後に0.5R以上逆行してから動いたら「早い」
+    const timing = lateR >= 0.3 ? 'late' : (t.r < 0 && mfeR < 0.3) ? 'wrong' : maeR >= 0.5 ? 'early' : 'ok';
+    return {rows:[me].concat(rows), best: better ? best.key : null, method, timing, maeR: me.mae, mfeR, lateR};
+  }
+  function renderCmp(c){
+    if(!c) return;
+    const f = v=>fmtP(v), rT = x=> x.skip ? '入らず ±0' : x.r == null ? (x.open != null ? `未決済 ${x.open>=0?'+':''}${x.open.toFixed(1)}R` : (x.note||'—')) : `${x.r>0?'+':''}${x.r.toFixed(1)}R`;
+    const cls = x=> x.skip || x.r == null ? '' : x.r > 0 ? 'up' : x.r < 0 ? 'dn' : '';
+    const tmTxt = {late:`<b>遅い</b>（合図の終値より ${c.lateR.toFixed(2)}R 不利な価格で入った）`,
+                   early:`<b>早い</b>（入った後に ${c.maeR.toFixed(2)}R 逆行してから動いた）`,
+                   wrong:`入った直後から逆行（最大順行 ${c.mfeR.toFixed(2)}R）→ 入り方より、<b>場所か方向</b>を見直す`,
+                   ok:'<b>ちょうど</b>'}[c.timing];
+    const best = c.rows.find(x=>x.key===c.best);
+    const html = `<div id="fbCmp"><h4>入り方の比較<span>同じ合図・同じSL・TPは2R（ツールが裏で計算）</span></h4>
+      <table><tr><th>入り方</th><th>入った価格</th><th>結果</th><th>TP/SLまで</th><th>最大逆行</th></tr>${
+        c.rows.map(x=>`<tr class="${x.key==='me'?'me':''}${x.key===c.best?' best':''}"><td>${x.label}</td><td>${x.skip?'—':f(x.entry)}</td><td class="${cls(x)}">${rT(x)}</td><td>${x.skip ? x.skip : x.exit ? hmUTC(x.exit) : '—'}</td><td>${x.mae!=null && !x.skip ? x.mae.toFixed(2)+'R' : '—'}</td></tr>`).join('')}</table>
+      <div class="tm">入るタイミング：最大逆行 <b>${c.maeR.toFixed(2)}R</b>／最大順行 <b>${c.mfeR.toFixed(2)}R</b> → ${tmTxt}${
+        best ? (best.skip ? `<br>今回は${best.label}なら、入らずに済んだ（±0R）。` : `<br>今回は${best.label}が一番よかった（${rT(best)}${best.exit?`・${hmUTC(best.exit)}`:''}）。`) : ''}</div></div>`;
+    $('fbList').insertAdjacentHTML('afterend', html);
+  }
   // SL：直近の安値（高値）の外／合図の足の外。TP：2R／3R／直近の高値（安値）の手前
   function applyBiasSLTP(){
     const i = idx, c = candles[i], atr = sgAtr(candles, i), L = pos.side==='long', dir = L ? 1 : -1;
@@ -4811,7 +5103,10 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
       : `作戦外で入っています。${ENV_JA[st]}での作戦：${allowed.map(a=>PLAY_FOR[st][side][a]).join('／') || 'なし'}。`);
     // B-3 入る足で、合図を見てから入った
     const etf = tfAt(2), want = B.trig.map(k=>TRIG_JA[k]);
-    const got = (side==='long' ? X.trigLong : X.trigShort).filter(x=>want.includes(x));
+    const tg = P.trig;   // 入った足から2本前までさかのぼって見つけた合図（なし＝null／前の記録＝undefined）
+    const got = tg !== undefined ? (tg ? tg.kinds.filter(x=>want.includes(x)) : []) : (side==='long' ? X.trigLong : X.trigShort).filter(x=>want.includes(x));
+    const late = tg && tg.ago ? `（<b>${tg.ago}本前・${hmUTC(tg.time)}</b>）` : '';
+    const lateMsg = tg && tg.ago ? `${tg.ago}本遅れたので、合図の終値より <b>${(p.entry-tg.close)>=0?'+':''}${(p.entry-tg.close).toFixed(1)}</b> ${(p.entry-tg.close)>=0?'高く':'安く'}入っています。` : '';
     const nearClose = Math.abs(p.entry - X.close) <= X.atr*0.3;
     const tfOk = P.tf===etf;
     // 反転は、作戦の足で入る向きの CHoCH が出てから（その後の BOS も同じ流れなので可）
@@ -4829,7 +5124,7 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     const sigOk = tfOk && got.length>0 && nearClose && chochOk;
     add('B-3', true, '合図を見てから入った', sigOk,
       !chochOk ? `反転は${flowJa}が出てから入ります。CHoCH の前に入っています（先回り）。`
-      : sigOk ? `${TF_JA[etf]}で${got.join('・')}が確定してから入っています。${pl.play==='rev' ? `（${flowJa}のあと）` : ''}`
+      : sigOk ? `${TF_JA[etf]}で${got.join('・')}${late}が確定してから入っています。${lateMsg}${pl.play==='rev' ? `（${flowJa}のあと）` : ''}`
       : !tfOk ? `${TF_JA[P.tf]||P.tf}で入っています。このバイアスの入る足は${TF_JA[etf]}です。`
       : !got.length ? `${TF_JA[etf]}の合図（${want.join('・')}）が出る前に入っています。1本の確定を待ちましょう。`
       : `合図（${got.join('・')}）は出ていますが、終値から離れた価格で入っています（先回りの指値）。`);
@@ -4862,13 +5157,16 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     return {style:P.style, pid:null, trend:X.trend.state, trendWhy:X.trend.why, items, ruleOk,
             quad: ruleOk ? (win?'gw':'gl') : (win?'bw':'bl'), mfeR, div:X.div||null,
             failed: items.filter(x=>x.ok===false).map(x=>x.id),
-            bias:{state:st, play:pl.play, side, toolState:X.trend.state}};
+            bias:{state:st, play:pl.play, side, toolState:X.trend.state},
+            cmp: entryCompare(p, t, P)};
   };
   // フィードバックの見出し：スタイル名ではなく「自分のバイアス｜相場・作戦」
   const _sgShowFeedback = sgShowFeedback;
   sgShowFeedback = function(t){
     _sgShowFeedback(t);
+    const old = $('fbCmp'); if(old) old.remove();
     const fb = t && t.fb; if(!fb || !fb.bias) return;
+    renderCmp(fb.cmp);
     const b = fb.bias, tfS = TFS[tfi(B.tfs[0])][1];
     const playTxt = b.state && b.play ? `${ENV_JA[b.state]}・${PLAY_FOR[b.state][b.side][b.play]}` : '作戦外';
     $('fbCtx').innerHTML = `自分のバイアス｜${playTxt}`
