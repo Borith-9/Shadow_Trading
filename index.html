@@ -2838,8 +2838,12 @@ function renderToolZones(){
       ctx.fillText(`${mob?'SL':'SL候補'} ${fmtP(z.sl)}`, tw-6, z.role==='sup' ? ys+3 : ys-3);
     }
     ctx.setLineDash([]);
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = rgba(c, .95);
-    ctx.fillText(mob ? `ツール ${z.lo.toFixed(0)}〜${z.hi.toFixed(0)}（${z.n}回）` : `ツール：${z.role==='sup'?'サポート':'レジスタンス'}${z.inside?'（価格が中）':''} ${fmtP(z.lo)}〜${fmtP(z.hi)}（反応${z.n}回）`, x0+6, y0+h/2);
+    // 文字は箱の右端に（左はローソク足にかぶるため）。後ろに薄い下地を敷いて、足と重なっても読めるように
+    const txt = mob ? `ツール ${z.lo.toFixed(0)}〜${z.hi.toFixed(0)}（${z.n}回）` : `ツール：${z.role==='sup'?'サポート':'レジスタンス'}${z.inside?'（価格が中）':''} ${fmtP(z.lo)}〜${fmtP(z.hi)}（反応${z.n}回）`;
+    const tx = tw - 8, ty = y0 + h/2, lw = ctx.measureText(txt).width;
+    ctx.fillStyle = 'rgba(19,18,28,.82)'; ctx.fillRect(tx - lw - 5, ty - 8, lw + 10, 16);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = rgba(c, .98);
+    ctx.fillText(txt, tx, ty);
   }
   ctx.restore();
 }
