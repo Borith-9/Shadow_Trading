@@ -2350,7 +2350,7 @@ function renderDrawings(){
         ctx.font = '600 11px IBM Plex Sans JP';
         ctx.textAlign = 'right';
         ctx.fillStyle = rgba(rc, .95);
-        ctx.fillText(zoneLabel(zs), x0+w-8, y0+h2/2);
+        ctx.fillText(zoneLabel(zs), Math.min(x0+w-8, labelRightX(y0+h2/2-8, y0+h2/2+8) - 2), y0+h2/2);
         ctx.textAlign = 'center';
       }
       if(!d.text && sel && !editing){
@@ -2708,6 +2708,41 @@ $('structBtn').onclick = ()=>{
 const ZONE_BRK = 0.2;
 const ZONE_COLOR = {break:'#7d818c', pending:'#f5c84b', sup:'#26a69a', res:'#ef5350', tool:'#b388ff'};
 const ZONE_LABEL = {watch:'見張り中', pending:'様子見・次の足待ち', break:'✕ ブレイク'};
+const ZONE_BRK_LINE = '#a7abb8', ZONE_OK = '#1f8f6a', ZONE_LBL_BG = 'rgba(19,18,28,.85)';
+// 右端のラベルの位置：右パネルの出し入れタブ（›）にかぶる高さなら、その分だけ左へ
+function labelRightX(y1, y2){
+  const tw = chart.timeScale().width(), t = $('sideTab');
+  if(t && t.offsetParent){
+    const r = t.getBoundingClientRect(), w = wrap.getBoundingClientRect(), top = r.top - w.top, bot = r.bottom - w.top, left = r.left - w.left;
+    if(left < tw && y2 > top && y1 < bot) return left - 6;
+  }
+  return tw - 6;
+}
+// 横線（チャートの左端から右端まで）
+function zoneHLine(y, color, dash){
+  ctx.strokeStyle = color; ctx.lineWidth = 1.3; ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(0, y+.5); ctx.lineTo(chart.timeScale().width(), y+.5); ctx.stroke(); ctx.setLineDash([]);
+}
+// 線に付けるラベル（右寄せ・下地つき）。below＝線の下に置く。使った幅を返す
+function zoneTag(txt, xr, y, below, color, bg){
+  const w = ctx.measureText(txt).width + 10, top = below ? y + 2 : y - 18;
+  ctx.fillStyle = bg || ZONE_LBL_BG;
+  if(bg){ ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(xr - w, top, w, 16, 4); else ctx.rect(xr - w, top, w, 16); ctx.fill(); }
+  else ctx.fillRect(xr - w, top, w, 16);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = color; ctx.fillText(txt, xr - 5, top + 8);
+  return w;
+}
+// ブレイクの線のラベル。条件を満たしたら、丸いチェック（下地なし）＋緑の下地の「ブレイク ○○」
+function breakTag(p, y, below, done, xr){
+  const txt = `ブレイク ${fmtP(p)}`;
+  if(!done) return zoneTag(txt, xr, y, below, ZONE_BRK_LINE);
+  const w = zoneTag(txt, xr, y, below, '#ffffff', ZONE_OK), cx = xr - w - 11, cy = (below ? y + 2 : y - 18) + 8;
+  ctx.fillStyle = ZONE_OK; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(cx - 3.2, cy + .2); ctx.lineTo(cx - .8, cy + 2.6); ctx.lineTo(cx + 3.4, cy - 2.4); ctx.stroke();
+  ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+  return w + 22;
+}
 function h1Bars(){ const base = tfCache['5m']; if(!base || !base.length) return null; return tfCache['1h'] || (tfCache['1h'] = aggregate(base, 3600)); }
 const nowT = ()=> replayT != null ? replayT : (idx >= 0 && candles[idx] ? candles[idx].time + tfSec() : null);
 // 時刻 t までに確定した足の本数（足の長さ sec）
@@ -2816,13 +2851,34 @@ function toolZones(){
       .concat(out.filter(z=>z.lo > px).sort((a,b)=>a.lo-b.lo).slice(0,3), out.filter(z=>z.lo <= px && z.hi >= px))
       .map(z=>{ const r = role(z); return {...z, role:r, inside: z.lo <= px && z.hi >= px, sl: r==='sup' ? z.lo - atr*0.1 : z.hi + atr*0.1}; });
   }
+  for(const z of zones) z.brk = zoneState({type:'rect', p1:{t:z.t0, p:z.hi}, p2:{t:z.t0, p:z.lo}, wt: now - 24*3600});
   toolZoneMemo = {key, zones};
   return zones;
+}
+function renderBoxBreaks(){
+  if(!candles.length || idx < 0) return;
+  const arr = h1Bars(), now = nowT(); if(!arr || now == null) return;
+  const n = barsDoneAt(arr, 3600, now); if(n < 14) return;
+  const mgNow = h1Atr(arr, n-1) * ZONE_BRK;
+  ctx.save(); ctx.font = '600 11px IBM Plex Sans JP';
+  for(const d of drawings){
+    if(d.type !== 'rect') continue;
+    const zs = zoneState(d); if(!zs) continue;
+    const done = zs.st === 'break', sides = done || zs.side ? [zs.side] : ['sup', 'res'];
+    for(const sd of sides){
+      const below = sd === 'sup', p = below ? zs.lo - (done ? zs.mg : mgNow) : zs.hi + (done ? zs.mg : mgNow);
+      const y = series.priceToCoordinate(p); if(y == null) continue;
+      zoneHLine(y, done ? ZONE_OK : ZONE_BRK_LINE, [7,4]);
+      breakTag(p, y, below, done, labelRightX(below ? y : y-18, below ? y+18 : y));
+    }
+  }
+  ctx.restore();
 }
 function renderToolZones(){
   if(!showToolZones || !candles.length || idx < 0) return;
   const zs = toolZones(); if(!zs.length) return;
   const tw = chart.timeScale().width(), c = ZONE_COLOR.tool, mob = isMob();
+  const arr = h1Bars(), n = barsDoneAt(arr, 3600, nowT()), mgNow = (h1Atr(arr, n-1) || 0) * ZONE_BRK;
   ctx.save();
   ctx.font = '500 11px IBM Plex Sans JP';
   for(const z of zs){
@@ -2831,16 +2887,22 @@ function renderToolZones(){
     ctx.fillStyle = rgba(c, .12); ctx.fillRect(x0, y0, w, h);
     ctx.strokeStyle = rgba(c, .85); ctx.lineWidth = 1.2; ctx.setLineDash([5,3]);
     ctx.strokeRect(x0+.5, y0+.5, w-1, h-1);
-    const ys = series.priceToCoordinate(z.sl);
-    if(ys != null){
-      ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(x0, ys+.5); ctx.lineTo(tw, ys+.5); ctx.stroke();
-      ctx.textAlign = 'right'; ctx.textBaseline = z.role==='sup' ? 'top' : 'bottom'; ctx.fillStyle = rgba(c, .9);
-      ctx.fillText(`${mob?'SL':'SL候補'} ${fmtP(z.sl)}`, tw-6, z.role==='sup' ? ys+3 : ys-3);
-    }
     ctx.setLineDash([]);
+    // ブレイクの線：ゾーンの外に ATR×2割（サポート＝下、レジスタンス＝上）。直近24本でブレイクしていたら、抜けた側を緑に
+    const done = !!z.brk && z.brk.st === 'break', below = done ? z.brk.side === 'sup' : z.role === 'sup';
+    const bp = below ? z.lo - (done ? z.brk.mg : mgNow) : z.hi + (done ? z.brk.mg : mgNow);
+    const yb = series.priceToCoordinate(bp), ys = done ? null : series.priceToCoordinate(z.sl);
+    if(yb != null) zoneHLine(yb, done ? ZONE_OK : ZONE_BRK_LINE, [7,4]);
+    if(ys != null) zoneHLine(ys, rgba(c, .85), [2,3]);
+    // ラベル：右端に「SL候補」、その左に「ブレイク」（ブレイク後は SL候補 は消す）
+    ctx.font = '600 11px IBM Plex Sans JP';
+    let used = 0;
+    if(ys != null) used = zoneTag(`${mob?'SL':'SL候補'} ${fmtP(z.sl)}`, labelRightX(below ? ys : ys-18, below ? ys+18 : ys), ys, below, rgba(c, .95)) + 6;
+    if(yb != null) breakTag(bp, yb, below, done, labelRightX(below ? yb : yb-18, below ? yb+18 : yb) - used);
+    ctx.font = '500 11px IBM Plex Sans JP';
     // 文字は箱の右端に（左はローソク足にかぶるため）。後ろに薄い下地を敷いて、足と重なっても読めるように
     const txt = mob ? `ツール ${z.lo.toFixed(0)}〜${z.hi.toFixed(0)}（${z.n}回）` : `ツール：${z.role==='sup'?'サポート':'レジスタンス'}${z.inside?'（価格が中）':''} ${fmtP(z.lo)}〜${fmtP(z.hi)}（反応${z.n}回）`;
-    const tx = tw - 8, ty = y0 + h/2, lw = ctx.measureText(txt).width;
+    const tx = labelRightX(y0 + h/2 - 8, y0 + h/2 + 8) - 2, ty = y0 + h/2, lw = ctx.measureText(txt).width;
     ctx.fillStyle = 'rgba(19,18,28,.82)'; ctx.fillRect(tx - lw - 5, ty - 8, lw + 10, 16);
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = rgba(c, .98);
     ctx.fillText(txt, tx, ty);
@@ -3034,6 +3096,7 @@ function drawZones(){
   if(pos) drawPosBox(pos, true);
   renderStruct();
   renderToolZones();
+  renderBoxBreaks();
   renderDrawings();
   ctx.restore();
   // EMA の一覧は OHLC 表示のすぐ下（パネルの出し入れで OHLC の位置が変わるので合わせる）
