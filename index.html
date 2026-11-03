@@ -2590,7 +2590,7 @@ function closeTrade(exit, time, reason){
     setupType: meta ? (meta.variant==='ob_limit' ? 'ob_limit' : ('sweep_fvg_ob_confirm'+(meta.variant==='nosb'?'_nosb':meta.variant==='nosb_nobias'?'_nosb_nobias':''))) : 'manual',
     sweepDir: meta?meta.sweepDir:'', zoneType: meta?(meta.zoneType||''):'', confirmPattern: meta?meta.pat:'',
     barsToStep2: meta?meta.barsToStep2:'', barsToStep3: meta?meta.barsToStep3:'',
-    symbol:$('symbol').value, tf:curTF, ai: !!pos.ai, aiReason: pos.aiReason || ''});
+    symbol:$('symbol').value, tf:curTF, ai: !!pos.ai, aiReason: pos.aiReason || '', aiFeat: pos.aiFeat || null, aiZone: pos.aiZone || null, aiAtr: pos.aiAtr || null, aiRun: pos.aiRun || null, aiSl: pos.sl, aiTp: pos.tp});
   if(pos.plan && typeof sgEvaluate==='function') trades[trades.length-1].fb = sgEvaluate(pos, trades[trades.length-1]);
   // ボックスはWIN/LOSE表示のままチャートに残す
   closedBoxes.push({side:pos.side, entry:pos.entry, tp:pos.tp, sl:pos.sl, startT:pos.startT, endT:Math.max(pos.endT, candles[idx].time + barSec()), result, durSec, pnlUsd});
@@ -5403,7 +5403,7 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
       quad: fb.quad || null, ruleOk: fb.ruleOk == null ? null : !!fb.ruleOk, failed: fb.failed || [], plan,
       method: c ? c.method : null, late: late ? +late : null, timing: c ? c.timing : null,
       mae: c ? +c.maeR.toFixed(2) : null, mfe: c ? +c.mfeR.toFixed(2) : null, memo: '',
-      who: t.ai ? 'ai' : 'me', why: t.aiReason || ''};   // 2026-11-03 AI プレイヤー
+      who: t.ai ? 'ai' : 'me', why: t.aiReason || '', lesson: t.aiLesson || [], feat: t.aiFeat || null, run: t.aiRun || null};   // 2026-11-03 AI プレイヤー（lesson＝負けの型、feat＝入った時の条件、run＝一気に打った回）
     t.hid = rec.id;
     hist.push(rec);
     if(hist.length > HIST_MAX) hist = hist.slice(-HIST_MAX);
@@ -5450,7 +5450,7 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     const memo = x=> `<input class="memoIn" data-id="${x.id}" maxlength="200" value="${esc(x.memo)}" placeholder="一言メモ">`;
     if(!list.length){ $('histBody').innerHTML = `<div class="empty">${n ? 'この条件のトレードはありません' : 'まだ保存したトレードはありません。決済すると、ここに自動で残ります。'}</div>`; return; }
     $('histBody').innerHTML = `<table id="histTable"><thead><tr><th>#</th><th>保存日時</th><th>銘柄・足</th><th>場面（UTC）</th><th>売買</th><th>作戦</th><th>判定</th><th>結果</th><th>入り方</th><th>タイミング</th><th>一言メモ</th></tr></thead><tbody>${
-      list.map(({x,no})=>`<tr><td class="num">${no}</td><td>${dt(x.at)}</td><td>${esc(x.sym)} ${esc(x.tf)}</td><td>${utc(x.entryTime)}</td><td>${side(x)}</td><td>${x.who==='ai' ? '<span class="histAi" title="'+esc(x.why)+'">🤖 AI</span>' : ''}${esc(x.plan)}</td><td>${qb(x)}${x.failed.length?` <span class="ng">${esc(x.failed.join(' '))}</span>`:''}</td><td class="num">${rr(x)}</td><td>${how(x)}</td><td>${x.timing ? TIMING_JA[x.timing] : '—'}</td><td class="memo">${memo(x)}</td></tr>`).join('')}</tbody></table>`
+      list.map(({x,no})=>`<tr><td class="num">${no}</td><td>${dt(x.at)}</td><td>${esc(x.sym)} ${esc(x.tf)}</td><td>${utc(x.entryTime)}</td><td>${side(x)}</td><td>${x.who==='ai' ? '<span class="histAi" title="'+esc(x.why)+'">🤖 AI</span>' : ''}${esc(x.plan)}${x.lesson && x.lesson.length && window.AI_LESSON_JA ? '<br><span class="ng">'+esc(x.lesson.map(k=>window.AI_LESSON_JA[k]||k).join('・'))+'</span>' : ''}</td><td>${qb(x)}${x.failed.length?` <span class="ng">${esc(x.failed.join(' '))}</span>`:''}</td><td class="num">${rr(x)}</td><td>${how(x)}</td><td>${x.timing ? TIMING_JA[x.timing] : '—'}</td><td class="memo">${memo(x)}</td></tr>`).join('')}</tbody></table>`
       + `<div id="histCards">${list.map(({x,no})=>`<div class="card"><div class="row1"><span><b>#${no}</b> ${x.who==='ai' ? '<span class="histAi">🤖</span>' : ''}${side(x)} ${esc(x.plan)}</span><span>${qb(x)} <b>${rr(x)}</b></span></div><div class="row2">${esc(x.sym)} ${esc(x.tf)}｜場面 ${utc(x.entryTime)}｜入り方 ${how(x)}${x.timing ? '・' + TIMING_JA[x.timing] : ''}${x.failed.length ? `｜<span class="ng">${esc(x.failed.join(' '))}</span>` : ''}</div>${memo(x)}</div>`).join('')}</div>`;
   }
   // 一覧のメモ欄：書いたら保存（表と、スマホのカードの両方）
@@ -5479,8 +5479,8 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     if(!hist.length) return;
     const q = v=>{ const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
     const iso = t=> t != null ? new Date(t*1000).toISOString() : '';
-    const head = 'no,saved_at,symbol,tf,mode,game,who,side,plan,ai_reason,judge,rule_ok,failed_items,entry_time_utc,entry_price,exit_time_utc,exit_price,result,r_multiple,pnl_usd,entry_method,late_bars,timing,mae_r,mfe_r,memo\n';
-    const rows = hist.map((x,i)=>[i+1, new Date(x.at).toISOString(), x.sym, x.tf, x.mode, x.game||'', x.who==='ai' ? 'AI' : 'me', x.side, x.plan, x.why||'', x.quad ? SG_QUAD[x.quad].label : '', x.ruleOk==null ? '' : (x.ruleOk?1:0), x.failed.join(' '),
+    const head = 'no,saved_at,symbol,tf,mode,game,who,side,plan,ai_reason,lesson,judge,rule_ok,failed_items,entry_time_utc,entry_price,exit_time_utc,exit_price,result,r_multiple,pnl_usd,entry_method,late_bars,timing,mae_r,mfe_r,memo\n';
+    const rows = hist.map((x,i)=>[i+1, new Date(x.at).toISOString(), x.sym, x.tf, x.mode, x.game||'', x.who==='ai' ? 'AI' : 'me', x.side, x.plan, x.why||'', (x.lesson||[]).map(k=>window.AI_LESSON_JA ? window.AI_LESSON_JA[k]||k : k).join(' '), x.quad ? SG_QUAD[x.quad].label : '', x.ruleOk==null ? '' : (x.ruleOk?1:0), x.failed.join(' '),
       iso(x.entryTime), x.entry, iso(x.exitTime), x.exit, x.result, x.r, x.pnlUsd, x.method ? METHOD_JA[x.method] : '', x.late||'', x.timing ? TIMING_JA[x.timing] : '', x.mae==null?'':x.mae, x.mfe==null?'':x.mfe, x.memo].map(q).join(',')).join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + head + rows], {type:'text/csv'}));
@@ -6054,6 +6054,7 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
 <style>
   #aiBox{flex:none;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;gap:8px;font-size:12px}
   #aiBox h3{font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px}
+  #aiBox h4{font-size:11px;font-weight:700;color:var(--muted);margin-top:2px}
   #aiBox .tag{font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;background:rgba(127,179,255,.14);color:#7fb3ff;border:1px solid rgba(127,179,255,.4)}
   #aiBox .pills{display:flex;flex-wrap:wrap;gap:4px}
   #aiBox .pill{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--panel2);border:1px solid rgba(232,179,75,.55);color:var(--accent)}
@@ -6068,6 +6069,13 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   #aiScore b{display:block;color:var(--text);font-family:var(--mono);font-size:13px}
   #aiScore b.up{color:var(--up)} #aiScore b.dn{color:var(--down)}
   #aiBox .muted{color:var(--muted)}
+  #aiLearned{display:flex;flex-direction:column;gap:5px}
+  #aiLearned .lr{display:flex;align-items:flex-start;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:11px}
+  #aiLearned .lr.off{opacity:.5}
+  #aiLearned .lr b{display:block;color:var(--accent)}
+  #aiLearned .lr small{color:var(--muted)}
+  #aiLearned .lr button{padding:2px 7px;font-size:10px;flex:none}
+  #aiLog{font-size:11px;color:var(--muted);line-height:1.6;max-height:120px;overflow-y:auto}
   .sheet.aiStat{width:min(760px,100%)}
   .aiTbl{width:100%;border-collapse:collapse;font-size:12px}
   .aiTbl th{color:var(--muted);font-weight:400;text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
@@ -6080,6 +6088,8 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   .aiCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
   .aiCard{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--muted)}
   .aiCard b{display:block;font-family:var(--score);font-size:26px;line-height:1.1;color:var(--text)}
+  .aiSeg{display:flex;gap:6px;margin:8px 0}
+  .aiSeg button.on{border-color:var(--accent);color:var(--accent)}
   .histAi{font-size:10px;font-weight:700;padding:0 5px;border-radius:5px;background:rgba(127,179,255,.14);color:#7fb3ff;border:1px solid rgba(127,179,255,.4);margin-right:4px}
 </style>
 <script>
@@ -6087,22 +6097,43 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
 // 右パネルの［ゲーム｜フリー｜🤖 AI］。AI は設定したバイアス（相場ごとの作戦・合図・SL/TP・最低RR）と
 // ゾーン（ツールのゾーン＋自分で描いたボックス）で、入る足の確定ごとに判断して、いつもの openAt／checkExit で建てて決済する。
 // 採点・履歴は人のトレードと同じ道（sgEvaluate → histAdd）。決済後の画面は出さない（最終結果だけ）。
+// 2026-11-03 追加：1回ごとの反省（負けの型）と、自分で学ぶループ（走る → 負けの型を数える → 「入らない条件」を1つ学ぶ → また走る）。
 (function(){
-  const AI = {on:false, fast:false, stop:false, state:'', last:null};
+  const AI = {on:false, fast:false, stop:false, state:'', runId:null, learning:false};
   const Z = () => window.bzAI;   // バイアスの中身（B・tfAt・applyBiasSLTP など）
   const TRIG_JA = {engulf:'包み足', pin:'ピンバー', strong:'強い実体足'};
   const STATE_JA = {up:'上昇', down:'下降', range:'レンジ'};
   const $a = id => document.getElementById(id);
+  const LS_LEARN = 'shadowtrading.aiLearned';
+  const ls = (k, v) => { try{ if(v === undefined) return JSON.parse(localStorage.getItem(k) || 'null'); localStorage.setItem(k, JSON.stringify(v)); }catch(e){ return null; } };
+  // 入った時の条件（学ぶ材料）。名前と値の表示
+  const FEATS = {
+    session:{name:'時間帯', vals:{tokyo:'東京 0〜7時 UTC', london:'ロンドン 7〜12時', ny1:'NY前半 12〜17時', ny2:'NY後半 17〜22時', other:'22〜24時'}},
+    state:{name:'上位足', vals:{up:'上昇', down:'下降', range:'レンジ'}},
+    play:{name:'作戦', vals:{pull:'押し目・戻り', brk:'ブレイク', rev:'反転', fade:'レンジの下限・上限', wait:'レンジのブレイク', fake:'だまし'}},
+    side:{name:'売買', vals:{long:'買い', short:'売り'}},
+    zoneN:{name:'ゾーンの反応', vals:{'2':'2回', '3':'3回', '4+':'4回以上', '描いた':'描いたボックス'}},
+    rough:{name:'相場', vals:{'1':'荒れている（ATR 1.5倍以上）', '0':'落ち着いている'}},
+    nextR:{name:'次のゾーンまで', vals:{'<3':'3R 未満', '3+':'3R 以上', none:'なし'}},
+    wd:{name:'曜日', vals:{'1':'月', '2':'火', '3':'水', '4':'木', '5':'金'}},
+  };
+  const LESSON_JA = {tight_sl:'損切りが近すぎた（損切りの後に利確の値段まで行った）', zone_broke:'ゾーンがすぐ壊れた', next_close:'次のゾーンが近かった（3R未満）', rough:'相場が荒れていた',
+                     session:'時間帯（東京・深夜）', weak_zone:'反応2回だけのゾーン', late:'入るのが遅かった', wrong:'入った直後から逆行（場所か方向）', against:'上位足と逆（逆張り）'};
+  window.AI_LESSON_JA = LESSON_JA;
+  const sessOf = t => { const h = new Date(t*1000).getUTCHours(); return h < 7 ? 'tokyo' : h < 12 ? 'london' : h < 17 ? 'ny1' : h < 22 ? 'ny2' : 'other'; };
 
   // ---------- 右パネル ----------
   $('modeBar').insertAdjacentHTML('afterend', `<div id="aiBox" hidden>
     <h3>🤖 AI プレイヤー <span class="tag">設定したバイアスで打つ</span></h3>
     <div id="aiPlays" class="pills"></div>
     <div class="muted" id="aiRuleTxt"></div>
-    <div class="row"><button id="aiPlayBtn" class="ai">▶ 見ながら打つ</button><button id="aiFastBtn">⏩ 一気に打つ</button><button id="aiStopBtn" hidden>■ 止める</button></div>
+    <div class="row"><button id="aiPlayBtn" class="ai">▶ 見ながら打つ</button><button id="aiFastBtn">⏩ 一気に打つ</button><button id="aiLearnBtn">🔁 反省して強くなる</button><button id="aiStopBtn" hidden>■ 止める</button></div>
     <div id="aiBar" hidden><i></i></div>
     <div id="aiState">待機中</div>
     <div id="aiScore"></div>
+    <h4>学んだこと（この条件では入らない）</h4>
+    <div id="aiLearned"></div>
+    <div id="aiLog" hidden></div>
     <div class="row"><button id="aiStatBtn">分析（AI の履歴）</button><button id="aiEduBtn" class="ghost">教育（見張り役のルールで数える）</button></div>
   </div>`);
 
@@ -6118,9 +6149,12 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     return out;
   }
   const zoneTxt = z => `${z.auto ? 'ツールの' : '描いた'}ゾーン ${fmtP(z.lo)}〜${fmtP(z.hi)}${z.n ? `（${z.n}回反応）` : ''}`;
+  // 相場の荒れ：今の ATR（14本）÷ 普段（直近240本の高値−安値の平均）
+  function roughAt(i){ let s = 0, n = 0; for(let k = Math.max(0, i-240); k < i; k++){ s += candles[k].high - candles[k].low; n++; } const u = n ? s/n : 0; return u ? sgAtr(candles, i)/u : 1; }
+  // 今の走りのトレードだけ（前の走りは数えない）
+  const runTrades = () => trades.filter(x => x.ai && (x.aiRun || null) === AI.runId);
 
   // ---------- 判断：入る足が確定するたび ----------
-  // 返り値：入ったら true。理由は pos.aiReason に残す
   let brokenZones = [];   // ブレイクしたゾーン（戻りを待つ用）{lo,hi,up,i}
   function aiDecide(){
     const bz = Z(); if(!AI.on || !bz || !bz.saved || pos || idx < 30) return false;
@@ -6128,9 +6162,8 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     if(curTF !== etf){ setState(`足を ${etf} にしてください（AI は入る足で判断します）`); return false; }
     const i = idx, c = candles[i], prev = candles[i-1];
     const tClose = replayT != null ? replayT : c.time + tfSec();
-    // 1日2回負けたら、その日は終わり（バイアス.md：セント口座のルール。日は ET）
     // リベンジ・連敗ストップ（採点の B-6 と同じ）：損切りから3本以内は入り直さない／今日2連敗したら終わり（日は ET）
-    const dayKey = sgEt(c.time).dayKey, done = trades.filter(x => x.exitTime <= c.time), lastT = done[done.length-1];
+    const dayKey = sgEt(c.time).dayKey, done = runTrades().filter(x => x.exitTime <= c.time), lastT = done[done.length-1];
     if(lastT && lastT.r < 0 && c.time - lastT.exitTime <= 3*TF_SEC[etf]){ setState('損切りの直後なので、3本は入り直さない'); return false; }
     let streak = 0; for(let k = done.length-1; k >= 0; k--){ if(sgEt(done[k].entryTime).dayKey !== dayKey) break; if(done[k].r < 0) streak++; else break; }
     if(streak >= 2){ setState(`今日は2連敗したので、もう入りません（${STATE_JA[aiTrendState(tClose)] || '—'}）`); return false; }
@@ -6152,28 +6185,30 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     const structEv = typeof structLastAt === 'function' ? structLastAt(tClose) : null;
     const planSec = TF_SEC[bz.tfAt(1)] || 3600;
     const choch = up => structEv && structEv.k === 'CHoCH' && structEv.up === up && tClose - structEv.vis <= planSec*8;
-    const justBroke = up => brokenZones.find(b => b.up === up && (up ? b.hi < c.close : b.lo > c.close));
     const retest = up => brokenZones.find(b => b.up === up && touched(b) && (up ? tL.length : tS.length));
     const breakNow = up => zones.find(z => up ? (prev.close <= z.hi && c.close > z.hi + atr*0.2) : (prev.close >= z.lo && c.close < z.lo - atr*0.2));
-    const fake = side => { const l = sgLocation('fakeout', i, side, zones.map(z => ({top:z.hi, bottom:z.lo}))); return l.ok ? l : null; };
+    const fake = side => { const l = sgLocation('fakeout', i, side, zones.map(z => ({top:z.hi, bottom:z.lo, n:z.n, auto:z.auto}))); return l.ok ? l : null; };
     const S = STATE_JA[state];
     let pick = null;
+    const P = (side, play, zone, why) => ({side, play, zone, why});
     for(const a of plays){
       if(state === 'up'){
-        if(a === 'pull' && sup && tL.length) pick = {side:'long', play:a, why:`${S}の押し目：${zoneTxt(sup)}で${tL.join('・')}`};
-        else if(a === 'brk'){ if(B.bk === 'close'){ const z = breakNow(true); if(z) pick = {side:'long', play:a, why:`${S}：${zoneTxt(z)}を終値で上抜け`}; } else { const b = retest(true); if(b) pick = {side:'long', play:a, why:`${S}：上抜けした${zoneTxt(b)}への戻りで${tL.join('・')}`}; } }
-        else if(a === 'rev' && res && tS.length && choch(false)) pick = {side:'short', play:a, why:`${S}の反転：${zoneTxt(res)}で${tS.join('・')}、作戦の足で CHoCH↓`};
+        if(a === 'pull' && sup && tL.length) pick = P('long', a, sup, `${S}の押し目：${zoneTxt(sup)}で${tL.join('・')}`);
+        else if(a === 'brk'){ if(B.bk === 'close'){ const z = breakNow(true); if(z) pick = P('long', a, z, `${S}：${zoneTxt(z)}を終値で上抜け`); } else { const b = retest(true); if(b) pick = P('long', a, b, `${S}：上抜けした${zoneTxt(b)}への戻りで${tL.join('・')}`); } }
+        else if(a === 'rev' && res && tS.length && choch(false)) pick = P('short', a, res, `${S}の反転：${zoneTxt(res)}で${tS.join('・')}、作戦の足で CHoCH↓`);
       }else if(state === 'down'){
-        if(a === 'pull' && res && tS.length) pick = {side:'short', play:a, why:`${S}の戻り：${zoneTxt(res)}で${tS.join('・')}`};
-        else if(a === 'brk'){ if(B.bk === 'close'){ const z = breakNow(false); if(z) pick = {side:'short', play:a, why:`${S}：${zoneTxt(z)}を終値で下抜け`}; } else { const b = retest(false); if(b) pick = {side:'short', play:a, why:`${S}：下抜けした${zoneTxt(b)}への戻りで${tS.join('・')}`}; } }
-        else if(a === 'rev' && sup && tL.length && choch(true)) pick = {side:'long', play:a, why:`${S}の反転：${zoneTxt(sup)}で${tL.join('・')}、作戦の足で CHoCH↑`};
+        if(a === 'pull' && res && tS.length) pick = P('short', a, res, `${S}の戻り：${zoneTxt(res)}で${tS.join('・')}`);
+        else if(a === 'brk'){ if(B.bk === 'close'){ const z = breakNow(false); if(z) pick = P('short', a, z, `${S}：${zoneTxt(z)}を終値で下抜け`); } else { const b = retest(false); if(b) pick = P('short', a, b, `${S}：下抜けした${zoneTxt(b)}への戻りで${tS.join('・')}`); } }
+        else if(a === 'rev' && sup && tL.length && choch(true)) pick = P('long', a, sup, `${S}の反転：${zoneTxt(sup)}で${tL.join('・')}、作戦の足で CHoCH↑`);
       }else{
-        if(a === 'fade'){ if(sup && tL.length) pick = {side:'long', play:a, why:`${S}の下限：${zoneTxt(sup)}で${tL.join('・')}`}; else if(res && tS.length) pick = {side:'short', play:a, why:`${S}の上限：${zoneTxt(res)}で${tS.join('・')}`}; }
+        if(a === 'fade'){ if(sup && tL.length) pick = P('long', a, sup, `${S}の下限：${zoneTxt(sup)}で${tL.join('・')}`); else if(res && tS.length) pick = P('short', a, res, `${S}の上限：${zoneTxt(res)}で${tS.join('・')}`); }
         else if(a === 'wait'){
-          if(B.bk === 'close'){ const u = breakNow(true), d = breakNow(false); if(u) pick = {side:'long', play:a, why:`${S}：${zoneTxt(u)}を終値で上抜け`}; else if(d) pick = {side:'short', play:a, why:`${S}：${zoneTxt(d)}を終値で下抜け`}; }
-          else { const u = retest(true), d = retest(false); if(u) pick = {side:'long', play:a, why:`${S}：上抜けした${zoneTxt(u)}への戻りで${tL.join('・')}`}; else if(d) pick = {side:'short', play:a, why:`${S}：下抜けした${zoneTxt(d)}への戻りで${tS.join('・')}`}; }
+          if(B.bk === 'close'){ const u = breakNow(true), d = breakNow(false); if(u) pick = P('long', a, u, `${S}：${zoneTxt(u)}を終値で上抜け`); else if(d) pick = P('short', a, d, `${S}：${zoneTxt(d)}を終値で下抜け`); }
+          else { const u = retest(true), d = retest(false); if(u) pick = P('long', a, u, `${S}：上抜けした${zoneTxt(u)}への戻りで${tL.join('・')}`); else if(d) pick = P('short', a, d, `${S}：下抜けした${zoneTxt(d)}への戻りで${tS.join('・')}`); }
         }
-        else if(a === 'fake'){ const fl = tL.length && fake('long'), fs = tS.length && fake('short'); if(fl) pick = {side:'long', play:a, why:`${S}：${fl.msg}、${tL.join('・')}`}; else if(fs) pick = {side:'short', play:a, why:`${S}：${fs.msg}、${tS.join('・')}`}; }
+        else if(a === 'fake'){ const fl = tL.length && fake('long'), fs = tS.length && fake('short');
+          const zz = l => l && l.zone ? {lo:l.zone.bottom, hi:l.zone.top, n:l.zone.n, auto:l.zone.auto} : null;
+          if(fl) pick = P('long', a, zz(fl), `${S}：${fl.msg}、${tL.join('・')}`); else if(fs) pick = P('short', a, zz(fs), `${S}：${fs.msg}、${tS.join('・')}`); }
       }
       if(pick) break;
     }
@@ -6189,15 +6224,22 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     if(B.tp === 'next'){ const look = candles.slice(Math.max(0, i-60), i+1); const ext = L ? Math.max(...look.map(b => b.high)) : Math.min(...look.map(b => b.low)); if(L ? ext > entry : ext < entry) tp = ext - dir*atr*0.1; }
     if(Math.abs(tp - entry)/risk < rr - 0.005){ setState(`${pick.why} → 見送り（RR が 1:${rr} に届かない）`); return false; }
     const next = zones.filter(z => L ? z.lo > entry : z.hi < entry).sort((a, b) => L ? a.lo - b.lo : b.hi - a.hi)[0];
-    if(next){ const nr = (L ? next.lo - entry : entry - next.hi)/risk; if(nr < rr - 0.005){ setState(`${pick.why} → 見送り（次のゾーンまで ${nr.toFixed(1)}R しかない）`); return false; } }
+    const nr = next ? (L ? next.lo - entry : entry - next.hi)/risk : null;
+    if(nr != null && nr < rr - 0.005){ setState(`${pick.why} → 見送り（次のゾーンまで ${nr.toFixed(1)}R しかない）`); return false; }
+    // 入った時の条件（学ぶ材料）と、学んだこと（この条件では入らない）
+    const z = pick.zone;
+    const feat = {session: sessOf(tClose), state, play: pick.play, side: pick.side,
+                  zoneN: !z ? '—' : !z.auto ? '描いた' : z.n >= 4 ? '4+' : String(z.n || 2),
+                  rough: roughAt(i) >= 1.5 ? '1' : '0', nextR: nr == null ? 'none' : nr < 3 ? '<3' : '3+', wd: String(new Date(c.time*1000).getUTCDay())};
+    const hit = learned().find(r => r.on !== false && r.v.includes(feat[r.f]));
+    if(hit){ setState(`${pick.why} → 見送り（学んだこと：${hit.name}）`); return false; }
     // 建てる：いつもの道（openAt → バイアスの sgOnOpen：SL/TP・合図の足・確認画面）。確認画面は AI が作戦を選んで閉じる
     const wasPlaying = playing;
     openAt(pick.side, entry);
     if(!pos) return false;
-    pos.ai = true; pos.aiReason = pick.why;
+    pos.ai = true; pos.aiReason = pick.why; pos.aiFeat = feat; pos.aiZone = z ? {lo:z.lo, hi:z.hi, n:z.n || null, auto:!!z.auto} : null; pos.aiAtr = atr; pos.aiRun = AI.runId;
     if(pos.plan){ pos.plan.pid = null; pos.plan.play = {state, side:pick.side, play:pick.play}; }
     $('planModal').hidden = true;
-    AI.last = {t:c.time, side:pick.side, why:pick.why};
     setState(`<b>保有中：${L ? '買い' : '売り'} ${fmtP(entry)}</b>　損切り ${fmtP(pos.sl)}／利確 ${fmtP(pos.tp)}<br>${pick.why}`);
     if(wasPlaying && !playing && !AI.fast) togglePlay();
     return true;
@@ -6206,26 +6248,49 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   function aiTrendState(tClose){ const tr = sgTrend(Z().B.tfs[0], tClose); return tr ? tr.state : 'range'; }
   function setState(html){ AI.state = html; const el = $a('aiState'); if(el) el.innerHTML = html; }
 
+  // ---------- 1回ごとの反省：負けの型（決済した時に、その後の足も見て付ける。判断には使わない） ----------
+  function aiLessons(t){
+    const out = [], F = t.aiFeat || {}, L = t.side === 'long';
+    if(t.r >= 0) return out;
+    const i0 = candles.findIndex(c => c.time === t.entryTime), ix = candles.findIndex(c => c.time >= t.exitTime);
+    if(t.reason === 'SL' && ix >= 0 && t.aiTp != null){ for(let k = ix+1; k < Math.min(candles.length, ix+25); k++){ if(L ? candles[k].high >= t.aiTp : candles[k].low <= t.aiTp){ out.push('tight_sl'); break; } } }
+    if(t.aiZone && i0 >= 0){ const z = t.aiZone, a = t.aiAtr || 1; for(let k = i0+1; k < Math.min(candles.length, i0+9); k++){ const c = candles[k]; if(L ? c.close < z.lo - a*0.2 : c.close > z.hi + a*0.2){ out.push('zone_broke'); break; } } }
+    if(F.nextR === '<3') out.push('next_close');
+    if(F.rough === '1') out.push('rough');
+    if(F.session === 'tokyo' || F.session === 'other') out.push('session');
+    if(F.zoneN === '2') out.push('weak_zone');
+    const cmp = t.fb && t.fb.cmp;
+    if(cmp && cmp.timing === 'late') out.push('late');
+    if(cmp && cmp.timing === 'wrong') out.push('wrong');
+    if((F.state === 'up' && t.side === 'short') || (F.state === 'down' && t.side === 'long')) out.push('against');
+    return out;
+  }
+
   // 足が進むたび：いつもの step のあとに AI が判断する（見ながら打つ）
   const _step = step;
   step = function(){ _step(); if(AI.on && !AI.fast) aiDecide(); };
-  // 決済後：AI のトレードは画面を出さずに記録だけ（最終結果だけ見る）
+  // 決済後：AI のトレードは反省を付けて記録だけ（画面は出さない）
   const _afterClose = sgAfterClose;
   sgAfterClose = function(t){
-    if(t && t.ai){ const cb = $('fbAuto'), was = cb.checked; cb.checked = false; try{ _afterClose(t); } finally{ cb.checked = was; } renderScore(); if(!AI.fast) setState(`${t.r >= 0 ? '利確' : '損切り'} ${t.r >= 0 ? '+' : ''}${t.r.toFixed(1)}R（${t.side === 'long' ? '買い' : '売り'} ${fmtP(t.entry)} → ${fmtP(t.exit)}）<br>次の合図を待っている`); }
-    else _afterClose(t);
+    if(t && t.ai){
+      t.aiLesson = aiLessons(t);
+      const cb = $('fbAuto'), was = cb.checked; cb.checked = false; try{ _afterClose(t); } finally{ cb.checked = was; }
+      renderScore();
+      if(!AI.fast) setState(`${t.r >= 0 ? '利確' : '損切り'} ${t.r >= 0 ? '+' : ''}${t.r.toFixed(1)}R（${t.side === 'long' ? '買い' : '売り'} ${fmtP(t.entry)} → ${fmtP(t.exit)}）${t.aiLesson.length ? `<br>反省：${t.aiLesson.map(k => LESSON_JA[k]).join('／')}` : ''}<br>次の合図を待っている`);
+    } else _afterClose(t);
   };
 
-  // ---------- 一気に打つ：今の足の最後まで、画面を描かずに進める ----------
-  async function runFast(){
-    const bz = Z(); if(!bz || !bz.saved){ setState('先に「自分のバイアス」を設定してください'); return; }
+  // ---------- 一気に打つ：今の足の最後まで、画面を描かずに進める。from＝始める足（省略＝今の位置、未開始なら最初） ----------
+  async function runFast(from){
+    const bz = Z(); if(!bz || !bz.saved){ setState('先に「自分のバイアス」を設定してください'); return null; }
     const etf = bz.tfAt(2);
     if(curTF !== etf){ document.querySelectorAll('#tfSeg button').forEach(x => x.classList.toggle('on', x.dataset.v === etf)); curTF = etf; await reloadKeepReplay(); }
-    if(!candles.length) return;
-    if(idx < 0 || idx >= candles.length-1) startReplayAt(Math.min(candles.length-2, 30));
+    if(!candles.length) return null;
+    if(from != null) startReplayAt(Math.min(candles.length-2, Math.max(1, from)));
+    else if(idx < 0 || idx >= candles.length-1) startReplayAt(Math.min(candles.length-2, 30));
     stopPlay();
-    AI.fast = true; AI.stop = false;
-    $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = true; $a('aiStopBtn').hidden = false; $a('aiBar').hidden = false;
+    AI.fast = true; AI.stop = false; AI.runId = Date.now().toString(36); brokenZones = [];
+    $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = $a('aiLearnBtn').hidden = true; $a('aiStopBtn').hidden = false; $a('aiBar').hidden = false;
     const n0 = trades.length, i0 = idx, total = candles.length - 1 - i0, t0 = performance.now();
     let k = 0;
     while(idx < candles.length-1 && !AI.stop){
@@ -6238,14 +6303,83 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
       aiDecide();
       if((++k & 255) === 0){ $a('aiBar').querySelector('i').style.width = `${Math.round((idx - i0)/total*100)}%`; setState(`一気に打っています… ${Math.round((idx - i0)/total*100)}%（${trades.length - n0}回）`); await new Promise(r => setTimeout(r, 0)); }
     }
+    if(pos) cancelPosition();   // 最後まで決まらなかった分は数えない
     AI.fast = false;
     series.setData(candles.slice(0, idx+1)); refreshEma(); scrollToCurrent();
-    $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = false; $a('aiStopBtn').hidden = true; $a('aiBar').hidden = true;
+    $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = $a('aiLearnBtn').hidden = false; $a('aiStopBtn').hidden = true; $a('aiBar').hidden = true;
     const done = trades.slice(n0).filter(x => x.ai), w = done.filter(x => x.r > 0).length, l = done.filter(x => x.r < 0).length, R = done.reduce((s, x) => s + x.r, 0);
-    setState(`終わりました：${done.length}回　${w}勝${l}敗 <b>${R >= 0 ? '+' : ''}${R.toFixed(1)}R</b>（${((performance.now() - t0)/1000).toFixed(0)}秒・${bar0(i0)}〜${bar0(idx)}）<br>履歴に 🤖 の印で保存しました。［分析］で何が負けているかを見る`);
+    const res = {runId:AI.runId, i0, n:done.length, w, l, R, sec:(performance.now() - t0)/1000, from:bar0(i0), to:bar0(idx)};
+    setState(`終わりました：${done.length}回　${w}勝${l}敗 <b>${R >= 0 ? '+' : ''}${R.toFixed(1)}R</b>（${res.sec.toFixed(0)}秒・${res.from}〜${res.to}）<br>履歴に 🤖 の印と反省を保存しました。［分析］で負けの型を見る`);
     renderScore();
+    return res;
   }
   const bar0 = i => candles[i] ? new Date(candles[i].time*1000).toISOString().slice(0, 10) : '';
+
+  // ---------- 学ぶ：負けが多い条件を「入らない条件」にする ----------
+  // 材料＝1回の走り（最新）の AI トレード。前半60%で見つけ、後半40%でも良くなるものだけ採用（過去の偶然に合わせすぎないため）
+  const learned = () => ls(LS_LEARN) || [];
+  function aiLearn(recs, cur){
+    recs = recs.filter(x => x.feat).sort((a, b) => a.entryTime - b.entryTime);
+    const note = [];
+    if(recs.length < 60) return {rules:[], note:`トレードが${recs.length}回。学ぶには60回以上要る（期間を長くする）`};
+    const cut = Math.floor(recs.length*0.6), tr = recs.slice(0, cut), te = recs.slice(cut);
+    const avg = L => L.length ? L.reduce((s, x) => s + (x.r || 0), 0)/L.length : 0;
+    const apply = (L, rules) => L.filter(x => !rules.some(r => r.v.includes(x.feat[r.f])));
+    const out = []; let rules = cur.filter(r => r.on !== false);
+    for(let round = 0; round < 2; round++){
+      let best = null;
+      for(const [f, d] of Object.entries(FEATS)) for(const v of Object.keys(d.vals)){
+        if(f === 'wd') continue;   // 曜日は偶然が混じりやすいので学ばない（分析には出す）
+        if(rules.some(r => r.f === f && r.v.includes(v))) continue;
+        const nr = [...rules, {f, v:[v]}];
+        const A0 = apply(tr, rules), A1 = apply(tr, nr), B0 = apply(te, rules), B1 = apply(te, nr);
+        const removed = A0.length - A1.length;
+        if(removed < 15 || A1.length < 30 || B1.length < 15) continue;
+        const gain = avg(A1) - avg(A0), gainT = avg(B1) - avg(B0);
+        if(gain >= 0.05 && gainT >= 0.02){ const score = gain + gainT; if(!best || score > best.score) best = {f, v, score, removed, a0:avg(A0), a1:avg(A1), b0:avg(B0), b1:avg(B1), lost: A0.filter(x => x.feat[f] === v && x.r < 0).length}; }
+      }
+      if(!best) break;
+      const rule = {f:best.f, v:[best.v], on:true, at:Date.now(), name:`${FEATS[best.f].name}が「${FEATS[best.f].vals[best.v]}」のときは入らない`,
+        why:`その条件で${best.removed}回入って${best.lost}回負け。外すと 1回あたり ${fmt(best.a0)} → ${fmt(best.a1)}（確かめる期間 ${fmt(best.b0)} → ${fmt(best.b1)}）`};
+      rules = [...rules, rule]; out.push(rule);
+    }
+    if(!out.length) note.push('今の走りからは、外すと良くなる条件が見つからなかった（前半で良くなっても後半で効かないものは採らない。曜日は学ばない）');
+    return {rules:out, note:note.join('')};
+  }
+  const fmt = r => `${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)}R`;
+
+  // 反省して強くなる：走る → 学ぶ → 学んだことを入れてまた走る（良くなった時だけ残す）。3回まで
+  async function improve(){
+    if(AI.learning) return;
+    const bz = Z(); if(!bz || !bz.saved){ setState('先に「自分のバイアス」を設定してください'); return; }
+    AI.learning = true; $a('aiLog').hidden = false; $a('aiLog').innerHTML = '';
+    const log = s => { $a('aiLog').insertAdjacentHTML('beforeend', `<div>${s}</div>`); $a('aiLog').scrollTop = 1e9; };
+    const start = (idx < 0 || idx >= candles.length-1) ? 30 : idx;
+    let base = await runFast(start); if(!base) { AI.learning = false; return; }
+    log(`① 走った：${base.n}回 ${base.w}勝${base.l}敗 <b>${fmt(base.R)}</b>（${base.from}〜${base.to}）`);
+    for(let round = 1; round <= 3 && !AI.stop; round++){
+      const recs = loadHist().filter(x => x.who === 'ai' && x.run === base.runId);
+      const got = aiLearn(recs, learned());
+      if(!got.rules.length){ log(`${got.note}`); break; }
+      const before = learned(); ls(LS_LEARN, [...before, ...got.rules]); renderLearned();
+      log(`② 学んだ：${got.rules.map(r => `<b>${r.name}</b>（${r.why}）`).join('／')}`);
+      const again = await runFast(start); if(!again) break;
+      log(`③ 学んだことを入れて走った：${again.n}回 ${again.w}勝${again.l}敗 <b>${fmt(again.R)}</b>（前は ${fmt(base.R)}）`);
+      if(again.R <= base.R){ ls(LS_LEARN, before); renderLearned(); log('→ 良くならなかったので、この学びは捨てた'); break; }
+      log('→ 良くなったので残した');
+      base = again;
+    }
+    AI.learning = false;
+    renderScore();
+    setState(`反省が終わりました：今は ${base.n}回 ${base.w}勝${base.l}敗 <b>${fmt(base.R)}</b>。学んだことは下に（切ったり消したりできる）`);
+  }
+  function renderLearned(){
+    const el = $a('aiLearned'), rules = learned();
+    el.innerHTML = rules.length ? rules.map((r, i) => `<div class="lr${r.on === false ? ' off' : ''}"><div style="flex:1;min-width:0"><b>${r.name}</b><small>${r.why || ''}</small></div><button data-ai-toggle="${i}">${r.on === false ? '使う' : '切る'}</button><button data-ai-del="${i}">消す</button></div>`).join('')
+      : '<div class="muted">まだありません。［🔁 反省して強くなる］で、負けが多い条件を自分で見つけます。</div>';
+    el.querySelectorAll('[data-ai-toggle]').forEach(b => b.onclick = () => { const rs = learned(); rs[+b.dataset.aiToggle].on = rs[+b.dataset.aiToggle].on === false; ls(LS_LEARN, rs); renderLearned(); });
+    el.querySelectorAll('[data-ai-del]').forEach(b => b.onclick = () => { const rs = learned(); rs.splice(+b.dataset.aiDel, 1); ls(LS_LEARN, rs); renderLearned(); });
+  }
 
   // ---------- 成績（履歴の AI 分） ----------
   const loadHist = () => { try{ return JSON.parse(localStorage.getItem('shadowtrading.history') || '[]') || []; }catch(e){ return []; } };
@@ -6260,51 +6394,62 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     for(const st of ['up', 'down', 'range']) for(const a of B.plays[st]){ if(a === 'skip') continue; const n = bz.PLAY_FOR[st].long[a] || bz.PLAY_FOR[st].short[a]; if(n) chips.push(`<span class="pill">${STATE_JA[st]}・${n}</span>`); }
     $a('aiPlays').innerHTML = chips.join('') || '<span class="muted">作戦が選ばれていません（設定で選ぶ）</span>';
     $a('aiRuleTxt').textContent = `${B.tfs[0]} の向きは自動判定。${bz.tfAt(2)} で${B.trig.map(k => TRIG_JA[k]).join('・')}が確定したら、ゾーン（ツール＋描いたボックス）で入る。SL：${B.sl === 'trig' ? '合図の足の外' : '直近の安値（高値）の外'}／TP：${B.tp === '3r' ? '3R' : B.tp === 'next' ? '次の高値（安値）の手前' : '2R'}／最低RR 1:${B.rr}／損切り直後の3本は入らない・2連敗したら今日は終わり`;
-    renderScore();
+    renderScore(); renderLearned();
   }
   window.aiSetOn = on => {
     AI.on = on; $a('aiBox').hidden = !on;
-    if(on){ renderPanel(); if(!AI.state) setState('待機中。［見ながら打つ］か［一気に打つ］'); }
+    if(on){ renderPanel(); if(!AI.state) setState('待機中。［見ながら打つ］［一気に打つ］［反省して強くなる］'); }
     else if(AI.fast) AI.stop = true;
   };
   $a('aiPlayBtn').onclick = async () => {
     const bz = Z(); if(!bz || !bz.saved){ setState('先に「自分のバイアス」を設定してください'); return; }
     const etf = bz.tfAt(2);
     if(curTF !== etf){ document.querySelectorAll('#tfSeg button').forEach(x => x.classList.toggle('on', x.dataset.v === etf)); curTF = etf; await reloadKeepReplay(); }
+    AI.runId = AI.runId || 'live';
     if(!playing) togglePlay();
   };
-  $a('aiFastBtn').onclick = runFast;
+  $a('aiFastBtn').onclick = () => runFast();
+  $a('aiLearnBtn').onclick = improve;
   $a('aiStopBtn').onclick = () => { AI.stop = true; };
   $a('aiEduBtn').onclick = () => { if(window.eduOpen) window.eduOpen(); };
 
-  // ---------- 分析：AI の履歴を条件ごとに数える ----------
+  // ---------- 分析：AI の履歴を条件ごとに数える（最新の走り／全部） ----------
   document.body.insertAdjacentHTML('beforeend', `<div class="modal" id="aiStatModal" hidden><div class="sheet aiStat" role="dialog" aria-labelledby="aiStatTitle">
-    <h2 id="aiStatTitle">🤖 AI の履歴を調べる</h2><p class="lead">AI が設定したバイアスで打った分だけ。どの条件で負けているかを見て、作戦表を直す材料にする。</p>
+    <h2 id="aiStatTitle">🤖 AI の履歴を調べる</h2><p class="lead">AI が設定したバイアスで打った分。負けの型と、どの条件で負けているかを見る。</p>
+    <div class="aiSeg"><button data-scope="last" class="on">最新の走り</button><button data-scope="all">全部</button></div>
     <div id="aiStatBody"></div><div class="actions"><button class="ghost" id="aiStatClose">閉じる</button></div></div></div>`);
-  const SESS = t => { const h = new Date(t*1000).getUTCHours(); return h < 7 ? '東京 0〜7時' : h < 12 ? 'ロンドン 7〜12時' : h < 17 ? 'NY前半 12〜17時' : h < 22 ? 'NY後半 17〜22時' : '22〜24時'; };
+  let statScope = 'last';
   const WD = ['日', '月', '火', '水', '木', '金', '土'];
   function renderStat(){
-    const h = loadHist().filter(x => x.who === 'ai'), box = $a('aiStatBody');
+    let h = loadHist().filter(x => x.who === 'ai'), box = $a('aiStatBody');
+    if(statScope === 'last' && h.length){ const last = h[h.length-1].run; h = h.filter(x => (x.run || null) === (last || null)); }
     if(!h.length){ box.innerHTML = '<p class="eduMuted">まだ AI のトレードがありません。［一気に打つ］で作れます。</p>'; return; }
     const sum = L => { const n = L.length, w = L.filter(x => x.r > 0).length; return {n, w, r: n ? L.reduce((s, x) => s + (x.r || 0), 0)/n : 0, R: L.reduce((s, x) => s + (x.r || 0), 0)}; };
-    const all = sum(h), fmtR = r => `${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)}R`;
+    const all = sum(h), losses = h.filter(x => x.r < 0);
+    // 負けの型
+    const cnt = {}; for(const x of losses) for(const k of (x.lesson || [])) cnt[k] = (cnt[k] || 0) + 1;
+    const lessonRows = Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<tr><td>${LESSON_JA[k] || k}</td><td class="n">${n}</td><td class="n">${Math.round(n/losses.length*100)}%</td><td></td></tr>`).join('')
+      || `<tr><td colspan="4" class="eduMuted">負けに型が付いていない（古い記録）</td></tr>`;
     const groups = [
       ['作戦', x => x.plan], ['上位足の状態', x => (x.plan || '').split('・')[0]], ['売買', x => x.side === 'long' ? '買い' : '売り'],
-      ['時間帯（UTC）', x => SESS(x.entryTime)], ['曜日（UTC）', x => WD[new Date(x.entryTime*1000).getUTCDay()]], ['判定', x => x.quad ? SG_QUAD[x.quad].label : '—'],
+      ['ゾーンの反応', x => x.feat ? FEATS.zoneN.vals[x.feat.zoneN] || x.feat.zoneN : '—'], ['次のゾーンまで', x => x.feat ? FEATS.nextR.vals[x.feat.nextR] : '—'], ['相場', x => x.feat ? FEATS.rough.vals[x.feat.rough] : '—'],
+      ['時間帯（UTC）', x => x.feat ? FEATS.session.vals[x.feat.session] : '—'], ['曜日（UTC）', x => WD[new Date(x.entryTime*1000).getUTCDay()]], ['判定', x => x.quad ? SG_QUAD[x.quad].label : '—'],
     ];
     let rows = '';
     for(const [name, f] of groups){
       const m = new Map(); for(const x of h){ const k = f(x) || '—'; (m.get(k) || m.set(k, []).get(k)).push(x); }
       const rs = [...m.entries()].map(([k, L]) => ({k, ...sum(L)})).sort((a, b) => b.n - a.n), worst = rs.filter(r => r.n >= 10).sort((a, b) => a.r - b.r)[0];
-      rows += `<tr><td class="grp" colspan="4">${name}</td></tr>` + rs.map(r => `<tr${worst && worst.k === r.k ? ' class="worst"' : ''}><td>${r.k}</td><td class="n">${r.n}</td><td class="n">${r.n ? Math.round(r.w/r.n*100) : 0}%</td><td class="n"><i class="aiRbar${r.r >= 0 ? ' pos' : ''}" style="width:${Math.min(60, Math.round(Math.abs(r.r)*60))}px"></i>${fmtR(r.r)}</td></tr>`).join('');
+      rows += `<tr><td class="grp" colspan="4">${name}</td></tr>` + rs.map(r => `<tr${worst && worst.k === r.k && worst.r < 0 ? ' class="worst"' : ''}><td>${r.k}</td><td class="n">${r.n}</td><td class="n">${r.n ? Math.round(r.w/r.n*100) : 0}%</td><td class="n"><i class="aiRbar${r.r >= 0 ? ' pos' : ''}" style="width:${Math.min(60, Math.round(Math.abs(r.r)*60))}px"></i>${fmt(r.r)}</td></tr>`).join('');
     }
-    box.innerHTML = `<div class="aiCards"><div class="aiCard">トレード<b>${all.n}</b></div><div class="aiCard">勝率<b>${Math.round(all.w/all.n*100)}%</b></div><div class="aiCard">1回あたり<b class="${all.r >= 0 ? 'up' : 'dn'}">${fmtR(all.r)}</b></div><div class="aiCard">累計<b class="${all.R >= 0 ? 'up' : 'dn'}">${all.R >= 0 ? '+' : '−'}${Math.abs(all.R).toFixed(1)}R</b></div></div>
+    box.innerHTML = `<div class="aiCards"><div class="aiCard">トレード<b>${all.n}</b></div><div class="aiCard">勝率<b>${Math.round(all.w/all.n*100)}%</b></div><div class="aiCard">1回あたり<b class="${all.r >= 0 ? 'up' : 'dn'}">${fmt(all.r)}</b></div><div class="aiCard">累計<b class="${all.R >= 0 ? 'up' : 'dn'}">${all.R >= 0 ? '+' : '−'}${Math.abs(all.R).toFixed(1)}R</b></div></div>
       <p class="eduMuted" style="margin:10px 0 6px">損益分岐は勝率 33.3%（利確 2R・損切り 1R）。赤い行＝その項目で一番負けている条件（10回以上）。</p>
-      <table class="aiTbl"><thead><tr><th>条件</th><th style="text-align:right">回数</th><th style="text-align:right">勝率</th><th>平均R</th></tr></thead><tbody>${rows}</tbody></table>`;
+      <table class="aiTbl"><thead><tr><th>負けの型（${losses.length}回の負けのうち）</th><th style="text-align:right">回数</th><th style="text-align:right">割合</th><th></th></tr></thead><tbody>${lessonRows}</tbody></table>
+      <table class="aiTbl" style="margin-top:10px"><thead><tr><th>条件</th><th style="text-align:right">回数</th><th style="text-align:right">勝率</th><th>平均R</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   $a('aiStatBtn').onclick = () => { if(typeof stopPlay === 'function') stopPlay(); renderStat(); $a('aiStatModal').hidden = false; };
   $a('aiStatClose').onclick = () => { $a('aiStatModal').hidden = true; };
   $a('aiStatModal').addEventListener('click', e => { if(e.target === $a('aiStatModal')) $a('aiStatModal').hidden = true; });
+  $a('aiStatModal').querySelectorAll('[data-scope]').forEach(b => b.onclick = () => { statScope = b.dataset.scope; $a('aiStatModal').querySelectorAll('[data-scope]').forEach(x => x.classList.toggle('on', x === b)); renderStat(); });
 })();
 </script>
 </body>
