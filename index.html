@@ -6133,6 +6133,8 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     <div id="aiScore"></div>
     <h4>学んだこと（この条件では入らない）</h4>
     <div id="aiLearned"></div>
+    <div class="row"><input type="password" id="aiKey" placeholder="見張り役の合言葉（TG_SECRET）" autocomplete="off" style="width:190px"><button id="aiTeachBtn">見張り役に教える</button></div>
+    <div id="aiTeachMsg" class="muted">学んだことを見張り役（Telegram の練習トレード）にも使わせる。送ると前に送った分は置き換わる</div>
     <div id="aiLog" hidden></div>
     <div class="row"><button id="aiStatBtn">分析（AI の履歴）</button><button id="aiEduBtn" class="ghost">教育（見張り役のルールで数える）</button></div>
   </div>`);
@@ -6373,6 +6375,30 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     renderScore();
     setState(`反省が終わりました：今は ${base.n}回 ${base.w}勝${base.l}敗 <b>${fmt(base.R)}</b>。学んだことは下に（切ったり消したりできる）`);
   }
+  // ---------- 見張り役に教える：学んだこと（入らない条件）を、見張り役の /rules（入る条件）の形にして送る ----------
+  // 見張り役の項目：session／side／rough／n（ゾーンの反応）／nextR／state。作戦・曜日・描いたボックスは見張り役にないので送れない
+  const WATCH_URL = 'https://shadow-watch.shadow-watch.workers.dev';
+  const W_MAP = {session:{f:'session', all:['tokyo', 'london', 'ny1', 'ny2', 'other']}, side:{f:'side', all:['buy', 'sell'], conv:{long:'buy', short:'sell'}}, rough:{f:'rough', all:['1', '0']},
+                 zoneN:{f:'n', all:['2', '3', '4+']}, nextR:{f:'nextR', all:['<3', '3+', 'none']}, state:{f:'state', all:['up', 'down', 'none']}};
+  async function teach(){
+    const msg = $a('aiTeachMsg'), key = $a('aiKey').value.trim();
+    if(!key){ msg.textContent = '合言葉（見張り役の TG_SECRET）を入れてください'; return; }
+    ls('shadowtrading.watchKey', key);
+    const rules = [], skipped = [];
+    for(const r of learned().filter(x => x.on !== false)){
+      const m = W_MAP[r.f]; if(!m){ skipped.push(r.name); continue; }
+      const vals = r.v.map(v => m.conv ? (m.conv[v] || v) : v).filter(v => m.all.includes(v));
+      if(!vals.length){ skipped.push(r.name); continue; }
+      rules.push({name:r.name, conds:[{f:m.f, v:m.all.filter(x => !vals.includes(x))}]});
+    }
+    msg.textContent = '送っています…';
+    try{
+      const r = await fetch(`${WATCH_URL}/rules`, {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({key, rules})});
+      const j = await r.json().catch(() => ({}));
+      if(!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      msg.textContent = `見張り役に教えました：${rules.length}個（${new Date().toISOString().slice(11, 16)} UTC）${rules.length ? '' : '＝条件なし'}${skipped.length ? `。見張り役にない項目は送れません：${skipped.join('／')}` : ''}`;
+    }catch(e){ msg.textContent = `送れませんでした：${e.message}（合言葉が違うか、ネットがつながっていない）`; }
+  }
   function renderLearned(){
     const el = $a('aiLearned'), rules = learned();
     el.innerHTML = rules.length ? rules.map((r, i) => `<div class="lr${r.on === false ? ' off' : ''}"><div style="flex:1;min-width:0"><b>${r.name}</b><small>${r.why || ''}</small></div><button data-ai-toggle="${i}">${r.on === false ? '使う' : '切る'}</button><button data-ai-del="${i}">消す</button></div>`).join('')
@@ -6410,6 +6436,9 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   };
   $a('aiFastBtn').onclick = () => runFast();
   $a('aiLearnBtn').onclick = improve;
+  $a('aiTeachBtn').onclick = teach;
+  $a('aiKey').value = ls('shadowtrading.watchKey') || '';
+  $a('aiKey').onchange = () => ls('shadowtrading.watchKey', $a('aiKey').value.trim());
   $a('aiStopBtn').onclick = () => { AI.stop = true; };
   $a('aiEduBtn').onclick = () => { if(window.eduOpen) window.eduOpen(); };
 
