@@ -5518,16 +5518,17 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   // フリー＝好きな日・好きな足から、何回でもトレードできる普通のリプレイ（採点・成績はゲームと同じ）
   let MODE = 'game';
   try{ if(localStorage.getItem('shadowtrading.mode') === 'free') MODE = 'free'; }catch(e){}
-  $('profileBar').insertAdjacentHTML('afterend', `<div id="modeBar"><div class="modeSeg" role="group" aria-label="モード"><button data-mode="game">ゲーム</button><button data-mode="free">フリー</button></div>
+  $('profileBar').insertAdjacentHTML('afterend', `<div id="modeBar"><div class="modeSeg" role="group" aria-label="モード"><button data-mode="game">ゲーム</button><button data-mode="free">フリー</button><button data-mode="edu">🎓 教育</button></div>
     <p id="freeNote" hidden>好きな日・好きな足から、何回でもトレードできます。開始日・🎲ランダムはリプレイ欄から。採点と成績は今までどおり。</p></div>`);
   function renderMode(){
     document.querySelectorAll('#modeBar button').forEach(b=>{
       b.classList.toggle('on', b.dataset.mode===MODE);
-      b.disabled = !!pos && b.dataset.mode!==MODE;   // 保有中は切り替えない
+      b.disabled = !!pos && b.dataset.mode!==MODE && b.dataset.mode!=='edu';   // 保有中は切り替えない（教育は開ける）
     });
     $('freeNote').hidden = MODE!=='free';
   }
   function setMode(m){
+    if(m==='edu'){ if(window.eduOpen) window.eduOpen(); return; }   // 教育は画面を開くだけ（モードは変えない）
     if(m===MODE || pos) return;
     MODE = m;
     try{ localStorage.setItem('shadowtrading.mode', m); }catch(e){}
@@ -5587,5 +5588,463 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
 })();
 </script>
 
+<!-- ==================== 教育（2026-11-03）：過去の足で見張り役と同じルールを走らせ、負けやすい条件を数える ==================== -->
+<style>
+  .sheet.edu{width:min(900px,100%)}
+  .eduHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .eduHead .lead{margin-bottom:0}
+  .eduStep{display:grid;grid-template-columns:28px minmax(0,1fr);gap:12px;margin-top:18px}
+  .eduNum{width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-family:var(--score);font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .eduBody{display:flex;flex-direction:column;gap:10px;min-width:0}
+  .eduBody h3{font-size:14px;font-weight:700}
+  .eduKv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;font-size:12px}
+  .eduKv dt{color:var(--muted);white-space:nowrap}
+  .eduPills{display:flex;flex-wrap:wrap;gap:6px}
+  .eduPill{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--panel2);border:1px solid var(--line)}
+  .eduRun{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px}
+  .eduBar{flex:1;min-width:160px;height:8px;border-radius:4px;background:var(--panel2);overflow:hidden}
+  .eduBar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  .eduCards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+  .eduCard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+  .eduCard .t{font-size:11px;color:var(--muted);letter-spacing:.04em}
+  .eduBig{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .eduBig b{font-family:var(--score);font-size:30px;font-weight:700;line-height:1}
+  .eduBig small{color:var(--muted);font-size:11px}
+  .eduPos{color:var(--up)} .eduNeg{color:var(--down)}
+  .eduTbl{width:100%;border-collapse:collapse;font-size:12px}
+  .eduTbl th{color:var(--muted);font-weight:400;text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+  .eduTbl td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .eduTbl td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .eduTbl td.grp{color:var(--muted);font-size:11px;padding-top:9px;border-bottom:none}
+  .eduTbl tr.worst td:not(.grp){background:rgba(239,83,80,.08)}
+  .eduRbar{display:inline-block;height:8px;border-radius:2px;vertical-align:middle;margin-right:6px;background:var(--down)}
+  .eduRbar.pos{background:var(--up)}
+  .eduRule{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 14px;align-items:center;background:var(--panel2);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px}
+  .eduRule.on{border-color:rgba(232,179,75,.55)}
+  .eduRule .name{font-weight:700}
+  .eduRule .res{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:3px}
+  .eduRule .verdict{font-size:11px;margin-top:3px}
+  .eduSw{width:40px;height:22px;border-radius:11px;border:1px solid var(--line);background:var(--panel2);position:relative;padding:0}
+  .eduSw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--muted)}
+  .eduSw.on{background:var(--accent);border-color:var(--accent)}
+  .eduSw.on::after{left:20px;background:#1b1a27}
+  .eduSw[disabled]{opacity:.4;cursor:default}
+  .eduSwl{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--muted)}
+  .eduSend{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;border-top:1px solid var(--line);padding-top:10px}
+  .eduSend input{width:230px}
+  .eduWarn{font-size:12px;color:var(--accent);background:var(--accent-soft);border-radius:10px;padding:8px 12px}
+  .eduMuted{color:var(--muted);font-size:12px}
+  .eduMono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .eduList{display:flex;flex-direction:column;gap:8px}
+  @media (max-width:520px){
+    .eduStep{grid-template-columns:24px minmax(0,1fr);gap:10px}
+    .eduNum{width:24px;height:24px;font-size:14px}
+    .eduBig b{font-size:26px}
+    .eduRule{grid-template-columns:minmax(0,1fr)}
+    .eduRule .eduSwl{flex-direction:row;justify-content:flex-end}
+  }
+</style>
+<script>
+// ==================== 教育：過去の足で、見張り役（watcher/src/logic.js）と同じルールを走らせる ====================
+// 足は {t: 始まりの UTC 秒, o, h, l, c}。判定の式は logic.js と同じ（変えるときは両方）。
+const EDU = (() => {
+const M15 = 900, H1 = 3600, H4 = 14400, DAY = 86400;
+const isBullEngulf = (p, c) => c.c > c.o && p.c < p.o && c.c >= p.o && c.o <= p.c;
+const isBearEngulf = (p, c) => c.c < c.o && p.c > p.o && c.c <= p.o && c.o >= p.c;
+function isHammer(c){ const body = Math.abs(c.c - c.o) || 1e-9, lw = Math.min(c.o, c.c) - c.l, uw = c.h - Math.max(c.o, c.c); return lw > body*2 && uw < body; }
+function isStar(c){ const body = Math.abs(c.c - c.o) || 1e-9, uw = c.h - Math.max(c.o, c.c), lw = Math.min(c.o, c.c) - c.l; return uw > body*2 && lw < body; }
+function atr(bars, end = bars.length, p = 14){
+  let s = 0, n = 0;
+  for(let i = Math.max(1, end - p); i < end; i++){ const b = bars[i], pc = bars[i-1].c; s += Math.max(b.h, pc) - Math.min(b.l, pc); n++; }
+  return n ? s / n : null;
+}
+function toH4(h1){
+  const out = [];
+  for(const b of h1){
+    const t = Math.floor(b.t / H4) * H4, L = out[out.length-1];
+    if(L && L.t === t){ L.h = Math.max(L.h, b.h); L.l = Math.min(L.l, b.l); L.c = b.c; }
+    else out.push({t, o:b.o, h:b.h, l:b.l, c:b.c});
+  }
+  return out;
+}
+function ema(vals, p){ const k = 2/(p+1); let e = vals[0]; for(let i = 1; i < vals.length; i++) e = vals[i]*k + e*(1-k); return e; }
+function h4Trend(h1, now){
+  const h4 = toH4(h1).filter(b => b.t + H4 <= now);
+  if(h4.length < 20) return null;
+  const c = h4.map(b => b.c), e = ema(c, 20);
+  return {above: c[c.length-1] > e, ema: e, close: c[c.length-1]};
+}
+const touches = (b, z) => b.l <= z.hi && b.h >= z.lo;
+
+// 自動のゾーン（logic.js autoZones と同じ）
+function autoZones(h1, now, px, a, perSide = 2){
+  const h4 = toH4(h1).filter(b => b.t + H4 <= now).slice(-120);
+  if(h1.length < 15 || h4.length < 10 || !a || !(px > 0)) return [];
+  const tol = a*0.75, maxW = a*0.5;
+  const piv = (i, lr, k) => { if(i < lr || i >= h4.length - lr) return false; for(let j = i-lr; j <= i+lr; j++){ if(j !== i && (k === 'H' ? h4[j].h > h4[i].h : h4[j].l < h4[i].l)) return false; } return true; };
+  const P = []; h4.forEach((c, i) => { if(piv(i, 2, 'H')) P.push({i, t:c.t, p:c.h, k:'H'}); if(piv(i, 2, 'L')) P.push({i, t:c.t, p:c.l, k:'L'}); });
+  const cand = P.filter(x => x.k === 'H').slice(-3).concat(P.filter(x => x.k === 'L').slice(-3));
+  P.filter(x => x.k === 'H' && x.p < px).slice(-2).forEach(x => { if(!cand.includes(x)) cand.push(x); });
+  const bandOf = x => { let b = null;
+    for(const c of h1){ if(c.t < x.t || c.t >= x.t + H4) continue; if(!b || (x.k === 'H' ? c.h > b.h : c.l < b.l)) b = c; }
+    return !b ? null : x.k === 'H' ? [Math.max(b.o, b.c), b.h] : [b.l, Math.min(b.o, b.c)]; };
+  const zs = [], seen = new Set();
+  for(const x of cand){
+    const m = [x];
+    h4.forEach((c, j) => { if(Math.abs(j - x.i) <= 1) return;
+      if(piv(j, 1, 'H') && Math.abs(c.h - x.p) <= tol) m.push({i:j, t:c.t, p:c.h, k:'H'});
+      else if(piv(j, 1, 'L') && Math.abs(c.l - x.p) <= tol) m.push({i:j, t:c.t, p:c.l, k:'L'}); });
+    if(m.length < 2) continue;
+    const key = m.map(y => y.i).sort((p, q) => p - q).join(',');
+    if(seen.has(key)) continue;
+    seen.add(key);
+    const bands = m.map(bandOf).filter(Boolean); if(!bands.length) continue;
+    let lo = Math.min(...bands.map(b => b[0])), hi = Math.max(...bands.map(b => b[1]));
+    if(hi - lo > maxW){ let best = null;
+      for(const v of bands.flat()) for(const x0 of [v, v - maxW]){ const x1 = x0 + maxW, c = bands.filter(b => b[1] >= x0 && b[0] <= x1).length; if(!best || c > best.c) best = {c, lo:x0, hi:x1}; }
+      lo = best.lo; hi = best.hi; }
+    zs.push({lo, hi, n:m.length, k:x.k});
+  }
+  zs.sort((a, b) => a.lo - b.lo);
+  const out = [], dist = q => Math.abs((q.lo + q.hi)/2 - px);
+  for(const z of zs){
+    const L = out[out.length-1];
+    if(L && z.lo <= L.hi){ L.lo = Math.min(L.lo, z.lo); L.hi = Math.max(L.hi, z.hi); L.n = Math.max(L.n, z.n); continue; }
+    if(L && z.lo - L.hi < maxW){ if(z.n > L.n || (z.n === L.n && dist(z) < dist(L))) out[out.length-1] = {...z}; continue; }
+    out.push({...z});
+  }
+  const role = z => z.hi < px ? 'sup' : z.lo > px ? 'res' : (z.k === 'L' ? 'sup' : 'res');
+  return out.filter(z => z.hi < px).sort((a, b) => b.hi - a.hi).slice(0, perSide)
+    .concat(out.filter(z => z.lo > px).sort((a, b) => a.lo - b.lo).slice(0, perSide), out.filter(z => z.lo <= px && z.hi >= px))
+    .map(z => {
+      const r = role(z); let {lo, hi} = z;
+      if(hi - lo > maxW){
+        if(z.hi < px) lo = hi - maxW;
+        else if(z.lo > px) hi = lo + maxW;
+        else { lo = Math.max(lo, px - maxW/2); hi = Math.min(hi, lo + maxW); }
+      }
+      return {lo, hi, role:r, n:z.n, auto:true};
+    });
+}
+let autoSeq = 0;
+function carryAuto(prev, found, now, px){
+  const out = [];
+  for(const z of found){
+    const p = prev.find(q => Math.min(q.hi, z.hi) >= Math.max(q.lo, z.lo));
+    const inside = z.lo <= px && z.hi >= px;
+    if(p) out.push({...z, id:p.id, at:p.at, role: inside ? p.role : z.role, flipped: !inside && p.role !== z.role});
+    else if(!inside) out.push({...z, id:'a' + (++autoSeq), at:now, fresh:true});
+  }
+  return out;
+}
+
+// 1回分の見張り（logic.js check と同じ）
+function check({now, m15, live, h1, zones, zst = {}, last = {}, maxSL = 20}){
+  const events = [], next = {};
+  const a = atr(h1), usual = atr(h1, h1.length, 240);
+  const ctx = {now, atr:a, rough: a && usual ? a / usual : null, trend:h4Trend(h1, now),
+               price: live ? live.c : m15.length ? m15[m15.length-1].c : null, maxSL};
+  const end15 = m15.length ? m15[m15.length-1].t + M15 : 0, endH1 = h1.length ? h1[h1.length-1].t + H1 : 0;
+  const from15 = last.m15 ?? end15, fromH1 = last.h1 ?? endH1;
+  for(const z of zones){
+    const s = next[z.id] = {st:'watch', ...zst[z.id]};
+    if(s.st === 'broken') continue;
+    let signed = false;
+    for(let k = 1; k < h1.length; k++){
+      const b = h1[k]; if(b.t + H1 <= Math.max(fromH1, z.at)) continue;
+      const mg = atr(h1, k+1) * 0.2, out = z.role === 'sup' ? z.lo - b.c : b.c - z.hi;
+      if(out >= mg || (out > 0 && s.st === 'pending')){
+        events.push({type:'break', zone:z, t:b.t, close:b.c, out, mg, twice: out < mg});
+        s.st = 'broken'; s.brokeAt = b.t + H1; break;
+      }
+      if(out > 0) s.st = 'pending';
+      else if(s.st === 'pending') s.st = 'near';
+    }
+    if(s.st === 'broken') continue;
+    for(let i = 2; i < m15.length; i++){
+      const b = m15[i], p = m15[i-1]; if(b.t + M15 <= Math.max(from15, z.at)) continue;
+      if(s.sign != null && b.t - s.sign < H1) continue;
+      const buy = z.role === 'sup';
+      const pat = buy ? (isBullEngulf(p, b) ? '包み足' : isHammer(b) ? 'ピンバー' : null)
+                      : (isBearEngulf(p, b) ? '包み足' : isStar(b) ? 'ピンバー' : null);
+      if(!pat || ![m15[i-2], p, b].some(x => touches(x, z))) continue;
+      const sl = buy ? Math.min(b.l, z.lo) - a*0.1 : Math.max(b.h, z.hi) + a*0.1;
+      const entry = b.c, risk = Math.abs(entry - sl);
+      const opp = zones.filter(y => y.id !== z.id && next[y.id]?.st !== 'broken' && zst[y.id]?.st !== 'broken' && (buy ? y.lo > entry : y.hi < entry))
+                       .sort((x, y) => buy ? x.lo - y.lo : y.hi - x.hi)[0];
+      const oppPx = opp ? (buy ? opp.lo : opp.hi) : null;
+      events.push({type:'sign', zone:z, t:b.t, pattern:pat, side: buy ? 'buy' : 'sell', entry, sl, risk,
+                   opp: oppPx, oppR: opp ? Math.abs(oppPx - entry) / risk : null});
+      s.sign = b.t; signed = true;
+    }
+    const seen = m15.filter(b => b.t + M15 > Math.max(from15, z.at));
+    if(live) seen.push(live);
+    if(s.st === 'watch' && seen.some(b => touches(b, z))){
+      if(!signed) events.push({type:'arrive', zone:z, t: now});
+      s.st = 'near';
+    } else if(s.st === 'near' && m15.length){
+      const c = m15[m15.length-1].c;
+      if(z.role === 'sup' ? c > z.hi + a : c < z.lo - a) s.st = 'watch';
+    }
+  }
+  return {events, zst:next, last:{m15:end15, h1:endH1}, ctx};
+}
+
+// ---------- 合図の条件（見張り役と同じ名前・値。rules で使う） ----------
+const weekStart = t => Math.floor((t - 4*DAY) / (7*DAY)) * 7*DAY + 4*DAY;
+const FEAT = {
+  session:{name:'時間帯（UTC）', vals:{tokyo:'東京 0〜7時', london:'ロンドン 7〜12時', ny1:'NY前半 12〜17時', ny2:'NY後半 17〜22時', other:'22〜24時'}},
+  trend:{name:'4H の向き', vals:{with:'順張り', against:'逆張り', none:'4H なし'}},
+  rough:{name:'相場', vals:{'1':'荒れている（ATR 1.5倍以上）', '0':'落ち着いている'}},
+  n:{name:'ゾーンの反応', vals:{'2':'2回', '3':'3回', '4+':'4回以上'}},
+  pattern:{name:'パターン', vals:{'包み足':'包み足', 'ピンバー':'ピンバー'}},
+  side:{name:'売買', vals:{buy:'買い', sell:'売り'}},
+  wd:{name:'曜日', vals:{'1':'月', '2':'火', '3':'水', '4':'木', '5':'金'}},
+  oppR:{name:'反対側のゾーンまで', vals:{'2+':'2R 以上', '<2':'2R 未満', none:'登録なし'}},
+};
+function features(ev, ctx){
+  const t = ev.t + M15, hr = new Date(t*1000).getUTCHours(), buy = ev.side === 'buy';
+  return {
+    session: hr < 7 ? 'tokyo' : hr < 12 ? 'london' : hr < 17 ? 'ny1' : hr < 22 ? 'ny2' : 'other',
+    trend: !ctx.trend ? 'none' : (buy === ctx.trend.above) ? 'with' : 'against',
+    rough: ctx.rough >= 1.5 ? '1' : '0',
+    n: ev.zone.n == null ? '' : ev.zone.n >= 4 ? '4+' : String(ev.zone.n),
+    pattern: ev.pattern, side: ev.side,
+    wd: String(new Date(t*1000).getUTCDay()),
+    oppR: ev.oppR == null ? 'none' : ev.oppR >= 2 ? '2+' : '<2',
+  };
+}
+// 条件 rules＝[{conds:[{f, v:[…]}]}]。全部満たしたら入る（値がない項目は通す）
+const passRules = (ft, rules) => rules.every(r => r.conds.every(c => ft[c.f] === '' || c.v.includes(ft[c.f])));
+
+// ---------- 自動トレードを走らせる ----------
+// base＝5分足（{time,open,high,low,close}）。onProgress(0〜1)。await で UI を止めない
+async function run(base, {maxSL = 20, trainTo = Date.UTC(2026, 0, 1)/1000, from = Date.UTC(2021, 0, 1)/1000, onProgress} = {}){
+  const wk = t => { const d = new Date(t*1000).getUTCDay(); return d > 0 && d < 6; };
+  const m5 = base.filter(c => wk(c.time));
+  const agg = sec => { const out = []; for(const c of m5){ const t = Math.floor(c.time/sec)*sec, L = out[out.length-1];
+    if(L && L.t === t){ L.h = Math.max(L.h, c.high); L.l = Math.min(L.l, c.low); L.c = c.close; } else out.push({t, o:c.open, h:c.high, l:c.low, c:c.close}); } return out; };
+  const m15 = agg(M15), h1 = agg(H1);
+  const cands = [], W15 = 40, WH1 = 480;
+  let auto = [], zst = {}, last = {}, k1 = 0, t0 = performance.now();
+  const start = Math.max(from, h1[WH1] ? h1[WH1].t : 0);
+  let i0 = 0; while(i0 < m15.length && m15[i0].t + M15 < start) i0++;
+  for(let i = i0; i < m15.length; i++){
+    const now = m15[i].t + M15;
+    while(k1 < h1.length && h1[k1].t + H1 <= now) k1++;   // 確定した1時間足の数
+    const h1w = h1.slice(Math.max(0, k1 - WH1), k1), m15w = m15.slice(Math.max(0, i + 1 - W15), i + 1);
+    const price = m15[i].c, a = atr(h1w);
+    const found = autoZones(h1w, now, price, a);
+    auto = carryAuto(auto, found, now, price).map(({fresh, flipped, ...z}) => {
+      const s = zst[z.id];
+      if(fresh && touches(m15[i], z)) zst[z.id] = {st:'near'};
+      else if(flipped) zst[z.id] = {st:'watch'};
+      else if(s?.st === 'broken' && now - s.brokeAt >= DAY) delete zst[z.id];
+      return z;
+    });
+    const r = check({now, m15:m15w, live:null, h1:h1w, zones:auto, zst, last, maxSL});
+    zst = r.zst; last = r.last;
+    for(const ev of r.events){
+      if(ev.type !== 'sign') continue;
+      // 結果：次の足から、損切り・利確に触れた（同じ足で両方＝負け）。金曜 21:00 UTC に持っていたら、その終値で決済
+      const buy = ev.side === 'buy', tp = buy ? ev.entry + ev.risk*2 : ev.entry - ev.risk*2, cut = weekStart(ev.t) + 4*DAY + 21*3600;
+      let exit = null, px = null, tx = null, j = i + 1;
+      for(; j < m15.length; j++){
+        const b = m15[j];
+        if(b.t + M15 > cut){ exit = 'week'; px = m15[j-1].c; tx = m15[j-1].t + M15; break; }
+        const hitSL = buy ? b.l <= ev.sl : b.h >= ev.sl, hitTP = buy ? b.h >= tp : b.l <= tp;
+        if(hitSL){ exit = 'sl'; px = ev.sl; tx = b.t + M15; break; }
+        if(hitTP){ exit = 'tp'; px = tp; tx = b.t + M15; break; }
+      }
+      if(!exit) continue;   // データの終わりまで決まらない
+      const R = exit === 'sl' ? -1 : exit === 'tp' ? 2 : (buy ? px - ev.entry : ev.entry - px) / ev.risk;
+      cands.push({t:ev.t + M15, ...features(ev, r.ctx), skip: ev.risk > maxSL, exit, r:R, risk:ev.risk, entry:ev.entry, sl:ev.sl, test: ev.t + M15 >= trainTo});
+    }
+    if(onProgress && (i & 1023) === 0){ onProgress((i - i0) / (m15.length - i0)); await new Promise(res => setTimeout(res, 0)); }
+  }
+  return {cands, sec:(performance.now() - t0)/1000, bars:m15.length, from:m15[i0]?.t, to:m15[m15.length-1]?.t + M15};
+}
+
+// ---------- 集計 ----------
+const sum = L => { const n = L.length, w = L.filter(x => x.exit === 'tp').length, l = L.filter(x => x.exit === 'sl').length;
+  return {n, w, l, r: n ? L.reduce((s, x) => s + x.r, 0) / n : 0, win: n ? w / n : 0}; };
+function analyze(cands, {minTrain = 300, minTest = 60} = {}){
+  const used = cands.filter(x => !x.skip), train = used.filter(x => !x.test), test = used.filter(x => x.test);
+  const all = {train:sum(train), test:sum(test), skipped: cands.length - used.length};
+  // 何で負けたか：項目ごと（学ぶ期間）
+  const byFeat = Object.entries(FEAT).map(([f, d]) => ({f, name:d.name, rows: Object.entries(d.vals).map(([v, name]) => ({v, name, ...sum(train.filter(x => x[f] === v))})).filter(r => r.n)}))
+    .map(g => ({...g, worst: g.rows.filter(r => r.n >= 100).sort((a, b) => a.r - b.r)[0]?.v}));   // 一番負けている条件（100回以上のもの）
+  // 条件の候補：1項目（値の組み合わせ）と2項目の AND
+  const singles = [];
+  for(const [f, d] of Object.entries(FEAT)){
+    const vals = Object.keys(d.vals);
+    for(const v of vals) singles.push({f, v:[v]});
+    if(f === 'session'){ singles.push({f, v:['london', 'ny1']}, {f, v:['tokyo', 'london']}, {f, v:['ny1', 'ny2']}, {f, v:['london', 'ny1', 'ny2']}); }
+    if(f === 'n') singles.push({f, v:['3', '4+']});
+  }
+  const name = c => c.v.map(v => FEAT[c.f].vals[v]).join('・');
+  const evalRule = conds => {
+    const ok = x => conds.every(c => x[c.f] === '' || c.v.includes(x[c.f]));
+    const tr = sum(train.filter(ok)), te = sum(test.filter(ok));
+    return {conds, name: conds.map(name).join(' ＋ '), train:tr, test:te,
+            verdict: tr.n < minTrain || te.n < minTest ? 'few' : tr.r > 0 && te.r > 0 ? 'ok' : tr.r > 0 ? 'maybe' : 'no'};
+  };
+  const rules = singles.map(c => evalRule([c]));
+  for(let i = 0; i < singles.length; i++) for(let j = i + 1; j < singles.length; j++){
+    if(singles[i].f === singles[j].f) continue;
+    rules.push(evalRule([singles[i], singles[j]]));
+  }
+  const rank = r => (r.verdict === 'ok' ? 2 : r.verdict === 'maybe' ? 1 : 0) * 10 + Math.min(r.train.r, r.test.r);
+  rules.sort((a, b) => rank(b) - rank(a) || b.train.n - a.train.n);
+  return {all, byFeat, rules: rules.filter(r => r.verdict !== 'few').slice(0, 8), minTrain, minTest};
+}
+return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1};
+})();
+
+// ---------- 教育の画面 ----------
+// 右パネルの［ゲーム｜フリー｜教育］から開く。走らせた結果（まとめだけ）と「使う」条件は localStorage に残す。
+// 「使う」条件は見張り役（Cloudflare）の /rules に送る。合言葉（TG_SECRET）は Borith が1回入れる。
+(function(){
+  const WATCH_URL = 'https://shadow-watch.shadow-watch.workers.dev';
+  const LS = {sum:'shadowtrading.edu', rules:'shadowtrading.eduRules', key:'shadowtrading.watchKey', sent:'shadowtrading.eduSent'};
+  const ls = (k, v) => { try{ if(v === undefined) return JSON.parse(localStorage.getItem(k) || 'null'); localStorage.setItem(k, JSON.stringify(v)); }catch(e){ return null; } };
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const fmtR = r => `${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)}R`;
+  const cls = r => r >= 0 ? 'eduPos' : 'eduNeg';
+  const fmtD = t => new Date(t*1000).toISOString().slice(0, 10);
+  const fmtDT = t => new Date(t*1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+  const TRAIN_TO = Date.UTC(2026, 0, 1)/1000, FROM = Date.UTC(2021, 0, 1)/1000;
+
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal" id="eduModal" hidden>
+  <div class="sheet edu" role="dialog" aria-labelledby="eduTitle">
+    <div class="eduHead"><div><h2 id="eduTitle">🎓 教育 — 過去の足で Shadow を鍛える</h2>
+      <p class="lead">見張り役と同じルールで、内蔵の足を全部トレードして記録し、負けやすい条件を数える。お金は動かさない。</p></div>
+      <button class="ghost" data-edu-close>閉じる</button></div>
+    <div class="eduStep"><div class="eduNum">1</div><div class="eduBody">
+      <h3>設定</h3>
+      <dl class="eduKv"><dt>データ</dt><dd id="eduData">—</dd>
+        <dt>学ぶ期間</dt><dd>2021〜2025</dd>
+        <dt>確かめる期間</dt><dd>2026〜（学ばせない「知らない期間」）</dd>
+        <dt>ルール</dt><dd class="eduPills"><span class="eduPill">ゾーン＝ツール（自動・上下2本）</span><span class="eduPill">サイン＝15分足の包み足・ピンバー</span><span class="eduPill">損切り＝ゾーンの外＋ATR×0.1</span><span class="eduPill">利確＝2R</span><span class="eduPill">損切り20ドル超は見送り</span><span class="eduPill">合図ごとに数える（重なりも全部）</span></dd></dl>
+      <div class="eduRun"><button id="eduStart" class="primary">▶ 教育を始める</button><div class="eduBar"><i id="eduBarFill"></i></div><span id="eduRunMsg" class="eduMuted">まだ走らせていません</span></div>
+    </div></div>
+    <div id="eduResult" hidden></div>
+    <div class="eduStep"><div class="eduNum">5</div><div class="eduBody">
+      <h3>本番と比べる</h3>
+      <div class="eduRun"><label><input type="file" id="eduCsv" accept=".csv,text/csv" hidden><button type="button" id="eduCsvBtn">練習トレードの CSV を読み込む</button></label><span class="eduMuted">Telegram の /log で届く shadow_trades_….csv</span></div>
+      <div id="eduCmp" class="eduMuted">まだ読み込んでいません。</div>
+    </div></div>
+    <div class="actions"><button class="ghost" data-edu-close>閉じる</button></div>
+  </div></div>`);
+  const $e = id => document.getElementById(id), modal = $e('eduModal');
+  modal.querySelectorAll('[data-edu-close]').forEach(b => b.onclick = () => { modal.hidden = true; });
+  modal.addEventListener('click', e => { if(e.target === modal) modal.hidden = true; });
+
+  let S = ls(LS.sum);   // 前回のまとめ
+  const enabled = () => ls(LS.rules) || [];
+
+  // 内蔵データの全部（画面の期間 3M/1Y で切り出す前）。dsCache は embFetch が入れる {meta, cols:{T,O,H,L,C（×100）}}
+  function fullBase(){
+    const sym = typeof loadedSym === 'string' ? loadedSym : '', ds = typeof dsCache === 'object' && dsCache[sym];
+    if(ds && ds.cols){ const {T, O, H, L, C} = ds.cols, out = []; for(let i = 0; i < T.length; i++) out.push({time:T[i], open:O[i]/100, high:H[i]/100, low:L[i]/100, close:C[i]/100}); return out; }
+    return tfCache['5m'] || null;
+  }
+  function dataLine(){
+    const base = fullBase();
+    if(!base || !base.length) return 'まだ読み込めていません';
+    const sym = typeof loadedSym === 'string' ? loadedSym : '';
+    return `${sym}（内蔵・${fmtD(base[0].time)}〜${fmtD(base[base.length-1].time)}・${base.length.toLocaleString()}本）${sym === 'XAUUSD' ? '　※今は PAXG（金の代わり）。本物の金に替える予定' : ''}`;
+  }
+  window.eduOpen = () => { if(typeof stopPlay === 'function') stopPlay(); $e('eduData').textContent = dataLine(); render(); modal.hidden = false; };
+
+  // 走らせる
+  $e('eduStart').onclick = async () => {
+    const base = fullBase();
+    if(!base || !base.length){ $e('eduRunMsg').textContent = 'データがまだ読み込めていません'; return; }
+    const btn = $e('eduStart'), fill = $e('eduBarFill'), msg = $e('eduRunMsg');
+    btn.disabled = true; fill.style.width = '0'; msg.textContent = '走らせています…';
+    try{
+      const res = await EDU.run(base, {from:FROM, trainTo:TRAIN_TO, onProgress: p => { fill.style.width = `${Math.round(p*100)}%`; msg.textContent = `走らせています… ${Math.round(p*100)}%`; }});
+      const an = EDU.analyze(res.cands);
+      S = {at: Date.now(), sym: typeof loadedSym === 'string' ? loadedSym : '', sec: res.sec, cands: res.cands.length, from: res.from, to: res.to, ...an};
+      ls(LS.sum, S);
+      fill.style.width = '100%';
+      msg.textContent = `終わりました：${res.cands.length.toLocaleString()}回を ${res.sec.toFixed(0)}秒で`;
+      render();
+    }catch(e){ msg.textContent = `止まりました：${e.message}`; }
+    btn.disabled = false;
+  };
+
+  const stat = s => `${s.n.toLocaleString()}回・勝率 ${(s.win*100).toFixed(1)}%`;
+  function render(){
+    const box = $e('eduResult');
+    if(!S){ box.hidden = true; return; }
+    box.hidden = false;
+    if(S.at) $e('eduRunMsg').textContent = `前回：${new Date(S.at).toLocaleString('ja-JP')}（${S.sym}・${S.cands.toLocaleString()}回・${S.sec.toFixed(0)}秒）`;
+    const on = enabled(), isOn = r => on.some(x => x.name === r.name);
+    const feat = S.byFeat.map(g => `<tr><td class="grp" colspan="3">${esc(g.name)}</td></tr>` + g.rows.map(r =>
+      `<tr${g.worst === r.v ? ' class="worst"' : ''}><td>${esc(r.name)}</td><td class="n">${r.n.toLocaleString()}</td><td class="n"><i class="eduRbar${r.r >= 0 ? ' pos' : ''}" style="width:${Math.min(60, Math.round(Math.abs(r.r)*100))}px"></i>${fmtR(r.r)}</td></tr>`).join('')).join('');
+    const V = {ok:['eduPos', '✅ 知らない期間でもプラス → 使える'], maybe:['eduMuted', '△ 知らない期間で効かない → 偶然かもしれない'], no:['eduMuted', '✕ 学ぶ期間でもマイナス']};
+    const rules = S.rules.length ? S.rules.map((r, i) => `<div class="eduRule${isOn(r) ? ' on' : ''}"><div><div class="name">${i+1}. ${esc(r.name)}</div>
+      <div class="res"><span>学ぶ期間 <b class="${cls(r.train.r)} eduMono">${fmtR(r.train.r)}</b>（${r.train.n.toLocaleString()}回）</span><span>確かめる期間 <b class="${cls(r.test.r)} eduMono">${fmtR(r.test.r)}</b>（${r.test.n.toLocaleString()}回）</span></div>
+      <div class="verdict ${V[r.verdict][0]}">${V[r.verdict][1]}</div></div>
+      <div class="eduSwl"><button type="button" class="eduSw${isOn(r) ? ' on' : ''}" data-rule="${i}" ${r.verdict === 'no' ? 'disabled' : ''} aria-label="この条件を使う"></button>使う</div></div>`).join('')
+      : `<p class="eduMuted">学ぶ期間でプラスになる条件は見つかりませんでした（${S.minTrain}回以上・確かめる期間 ${S.minTest}回以上のもの）。</p>`;
+    const sent = ls(LS.sent);
+    box.innerHTML = `
+    <div class="eduStep"><div class="eduNum">2</div><div class="eduBody"><h3>全部入るとどうなるか</h3>
+      <div class="eduCards">
+        <div class="eduCard"><div class="t">学ぶ期間 2021〜2025</div><div class="eduBig"><b class="${cls(S.all.train.r)}">${fmtR(S.all.train.r)}</b><small>1回あたり</small></div><div class="eduMuted">${stat(S.all.train)}</div></div>
+        <div class="eduCard"><div class="t">確かめる期間 2026〜</div><div class="eduBig"><b class="${cls(S.all.test.r)}">${fmtR(S.all.test.r)}</b><small>1回あたり</small></div><div class="eduMuted">${stat(S.all.test)}</div></div>
+      </div>
+      <p class="eduMuted">損益分岐は勝率 33.3%（利確 2R・損切り 1R）。損切りが20ドルを超えて見送った合図 ${S.all.skipped.toLocaleString()}回は数に入れていない。</p></div></div>
+    <div class="eduStep"><div class="eduNum">3</div><div class="eduBody"><h3>何で負けたか（学ぶ期間）</h3>
+      <table class="eduTbl"><thead><tr><th>条件</th><th style="text-align:right">回数</th><th>平均R</th></tr></thead><tbody>${feat}</tbody></table>
+      <p class="eduMuted">赤い行＝その項目で一番負けている条件。</p></div></div>
+    <div class="eduStep"><div class="eduNum">4</div><div class="eduBody"><h3>見つかった条件（教育の結果）</h3>
+      <div class="eduList">${rules}</div>
+      <div class="eduSend"><input type="password" id="eduKey" placeholder="見張り役の合言葉（TG_SECRET）" value="${esc(ls(LS.key) || '')}" autocomplete="off"><button type="button" id="eduSendBtn" class="primary">見張り役に送る</button>
+        <span id="eduSendMsg" class="eduMuted">${sent ? `送った：${sent.names.length ? sent.names.join('／') : '条件なし'}（${fmtDT(sent.at)}）` : 'まだ送っていない。使う条件を全部満たした時だけ、練習トレードが入る。'}</span></div>
+      <p class="eduWarn">条件を使うかどうかは Borith が決める。機械に任せると過去の偶然に合わせすぎて本番で負けるので、知らない期間でもプラスのもの（✅）だけを候補の上に出す。</p></div></div>`;
+    box.querySelectorAll('[data-rule]').forEach(b => b.onclick = () => {
+      const r = S.rules[+b.dataset.rule], cur = enabled();
+      ls(LS.rules, isOn(r) ? cur.filter(x => x.name !== r.name) : [...cur, {name:r.name, conds:r.conds}]);
+      render();
+    });
+    $e('eduSendBtn').onclick = send;
+    $e('eduKey').onchange = () => ls(LS.key, $e('eduKey').value.trim());
+  }
+
+  async function send(){
+    const key = $e('eduKey').value.trim(), msg = $e('eduSendMsg');
+    if(!key){ msg.textContent = '合言葉（見張り役の TG_SECRET）を入れてください'; return; }
+    ls(LS.key, key);
+    const rules = enabled();
+    msg.textContent = '送っています…';
+    try{
+      const r = await fetch(`${WATCH_URL}/rules`, {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({key, rules})});
+      const j = await r.json().catch(() => ({}));
+      if(!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      ls(LS.sent, {at: Math.floor(Date.now()/1000), names: rules.map(x => x.name)});
+      render();
+    }catch(e){ msg.textContent = `送れませんでした：${e.message}（合言葉が違うか、ネットがつながっていない）`; }
+  }
+
+  // 本番の CSV（shadow_trades_….csv：1行＝1回の決済）
+  $e('eduCsvBtn').onclick = () => $e('eduCsv').click();
+  $e('eduCsv').onchange = async () => {
+    const f = $e('eduCsv').files[0]; if(!f) return;
+    const text = (await f.text()).replace(/^﻿/, '');
+    const rows = text.split(/\r?\n/).filter(Boolean).map(l => l.split(','));
+    const head = rows.shift() || [], iR = head.indexOf('結果R'), iX = head.indexOf('決済'), iT = head.indexOf('入った日時UTC');
+    if(iR < 0 || iX < 0){ $e('eduCmp').textContent = 'この CSV は練習トレードの記録ではないようです（shadow_trades_….csv を選んでください）'; return; }
+    const n = rows.length, w = rows.filter(r => r[iX] === '利確').length, l = rows.filter(r => r[iX] === '損切り').length, R = rows.reduce((s, r) => s + (+r[iR] || 0), 0);
+    const base = S ? S.all.test.r : null;
+    $e('eduCmp').innerHTML = `本番 ${n}回：${w}勝${l}敗 <b class="${cls(R)} eduMono">${fmtR(R)}</b>${iT >= 0 && n ? `（${esc(rows[0][iT])}〜${esc(rows[n-1][iT])}）` : ''}<br>` +
+      (base == null ? '過去データと比べるには、先に「教育を始める」を走らせてください。' :
+       `過去データの「全部入ると（確かめる期間）」なら 1回 ${fmtR(base)} × ${n}回 ＝ <b class="eduMono">${fmtR(base*n)}</b>。${n < 100 ? '100回を超えるまでは、差は偶然の範囲。' : ''}`);
+  };
+})();
+</script>
 </body>
 </html>
