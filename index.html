@@ -5515,7 +5515,8 @@ if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   };
   window.bzGame = G;
   // AI プレイヤー（ページ末尾）に、バイアスの中身を見せる
-  window.bzAI = {B, PLAY_FOR, tfAt, planOptions, applyBiasSLTP, findTrig, get saved(){ return biasSaved; }, get decl(){ return decl; }};
+  window.bzAI = {B, PLAY_FOR, tfAt, planOptions, applyBiasSLTP, findTrig, get saved(){ return biasSaved; }, get decl(){ return decl; },
+    save(){ try{ localStorage.setItem('shadowtrading.bias', JSON.stringify(B)); }catch(e){} renderProfile(); }};   // save＝AI が見つけた設定を自分のバイアスに写す用（2026-11-04）
 
   // ==================== モード：ゲーム／フリー ====================
   // フリー＝好きな日・好きな足から、何回でもトレードできる普通のリプレイ（採点・成績はゲームと同じ）
@@ -6065,9 +6066,17 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   #aiState b{color:#7fb3ff}
   #aiBar{height:6px;border-radius:3px;background:var(--panel2);overflow:hidden}
   #aiBar i{display:block;height:100%;width:0;background:#7fb3ff;transition:width .2s}
-  #aiScore{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;font-size:11px;color:var(--muted)}
-  #aiScore b{display:block;color:var(--text);font-family:var(--mono);font-size:13px}
-  #aiScore b.up{color:var(--up)} #aiScore b.dn{color:var(--down)}
+  #aiScore,.aiGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center;font-size:11px;color:var(--muted)}
+  #aiScore b,.aiGrid b{display:block;color:var(--text);font-family:var(--mono);font-size:13px}
+  #aiScore b.up,.aiGrid b.up{color:var(--up)} #aiScore b.dn,.aiGrid b.dn{color:var(--down)}
+  #aiBox button.tune{border-color:var(--accent);color:var(--accent);font-weight:700}
+  #aiTune{display:flex;flex-direction:column;gap:6px}
+  #aiTune .aiTbl td,#aiTune .aiTbl th{padding:4px 6px;font-size:11px}
+  .aiTbl tr.chg td{background:rgba(232,179,75,.08)}
+  .aiTbl tr.chg td:last-child{color:var(--accent);font-weight:700}
+  .aiSw{width:40px;height:22px;border-radius:11px;border:1px solid var(--line);background:var(--panel2);position:relative;padding:0;flex:none}
+  .aiSw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--muted)}
+  .aiSw.on{background:var(--accent);border-color:var(--accent)} .aiSw.on::after{left:20px;background:#1b1a27}
   #aiBox .muted{color:var(--muted)}
   #aiLearned{display:flex;flex-direction:column;gap:5px}
   #aiLearned .lr{display:flex;align-items:flex-start;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:11px}
@@ -6127,10 +6136,12 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     <h3>🤖 AI プレイヤー <span class="tag">設定したバイアスで打つ</span></h3>
     <div id="aiPlays" class="pills"></div>
     <div class="muted" id="aiRuleTxt"></div>
-    <div class="row"><button id="aiPlayBtn" class="ai">▶ 見ながら打つ</button><button id="aiFastBtn">⏩ 一気に打つ</button><button id="aiLearnBtn">🔁 反省して強くなる</button><button id="aiStopBtn" hidden>■ 止める</button></div>
+    <div class="row"><button id="aiPlayBtn" class="ai">▶ 見ながら打つ</button><button id="aiFastBtn">⏩ 一気に打つ</button><button id="aiLearnBtn">🔁 反省して強くなる</button><button id="aiTuneBtn" class="tune">🧪 設定を試す</button><button id="aiStopBtn" hidden>■ 止める</button></div>
     <div id="aiBar" hidden><i></i></div>
     <div id="aiState">待機中</div>
     <div id="aiScore"></div>
+    <h4>AI の今の設定（試した結果）</h4>
+    <div id="aiTune"></div>
     <h4>学んだこと（この条件では入らない）</h4>
     <div id="aiLearned"></div>
     <div class="row"><input type="password" id="aiKey" placeholder="見張り役の合言葉（TG_SECRET）" autocomplete="off" style="width:190px"><button id="aiTeachBtn">見張り役に教える</button></div>
@@ -6140,9 +6151,9 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   </div>`);
 
   // ---------- ゾーン：ツールのゾーン（自動）＋自分で描いたボックス。壊れたものは使わない ----------
-  function aiZones(t){
+  function aiZones(t, minN){
     const out = [];
-    for(const z of (typeof toolZones === 'function' ? toolZones() : [])) if(!(z.brk && z.brk.st === 'break')) out.push({lo:z.lo, hi:z.hi, n:z.n, auto:true});
+    for(const z of (typeof toolZones === 'function' ? toolZones() : [])) if(!(z.brk && z.brk.st === 'break') && (z.n || 2) >= (minN || 2)) out.push({lo:z.lo, hi:z.hi, n:z.n, auto:true});
     for(const d of drawings) if(d.type === 'rect' && d.p1 && d.p2 && Math.min(d.p1.t, d.p2.t) <= t){
       const zs = typeof zoneState === 'function' ? zoneState(d) : null;
       if(zs && zs.st === 'break') continue;
@@ -6155,6 +6166,24 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   function roughAt(i){ let s = 0, n = 0; for(let k = Math.max(0, i-240); k < i; k++){ s += candles[k].high - candles[k].low; n++; } const u = n ? s/n : 0; return u ? sgAtr(candles, i)/u : 1; }
   // 今の走りのトレードだけ（前の走りは数えない）
   const runTrades = () => trades.filter(x => x.ai && (x.aiRun || null) === AI.runId);
+
+  // ---------- AI の設定：あなたのバイアス（B）か、［設定を試す］で見つけた設定（この端末に保存）。minN＝ツールのゾーンの最低反応回数（AI だけの項目） ----------
+  const LS_TUNE = 'shadowtrading.aiTuned';
+  const tuned = () => ls(LS_TUNE);
+  const CFG_KEYS = ['sl', 'tp', 'rr', 'trig', 'bk'];
+  function aiCfg(){
+    const B = Z().B, t = tuned();
+    const c = {sl:B.sl, tp:B.tp, rr:B.rr, trig:B.trig.slice(), bk:B.bk, minN:2};
+    if(t && t.on !== false) for(const k of [...CFG_KEYS, 'minN']) if(t[k] != null) c[k] = k === 'trig' ? t[k].slice() : t[k];
+    return c;
+  }
+  // 判断・建てる・決済・採点の間だけ、バイアス（B）の項目を差し替える（applyBiasSLTP・sgEvaluate も B を見るため）。終わったら必ず戻す
+  function withCfg(cfg, fn){
+    const B = Z().B, keep = {}, mN = AI.minN;
+    for(const k of CFG_KEYS){ keep[k] = B[k]; B[k] = cfg[k]; }
+    AI.minN = cfg.minN;
+    try{ return fn(); } finally{ for(const k of CFG_KEYS) B[k] = keep[k]; AI.minN = mN; }
+  }
 
   // ---------- 判断：入る足が確定するたび ----------
   let brokenZones = [];   // ブレイクしたゾーン（戻りを待つ用）{lo,hi,up,i}
@@ -6171,7 +6200,7 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     if(streak >= 2){ setState(`今日は2連敗したので、もう入りません（${STATE_JA[aiTrendState(tClose)] || '—'}）`); return false; }
     const state = aiTrendState(tClose), plays = (B.plays[state] || []).filter(a => a !== 'skip');
     if(!plays.length){ setState(`${bz.B.tfs[0]} は<b>${STATE_JA[state]}</b>：見送る設定`); return false; }
-    const atr = sgAtr(candles, i), zones = aiZones(c.time), recent = candles.slice(Math.max(0, i-2), i+1);
+    const atr = sgAtr(candles, i), zones = aiZones(c.time, AI.minN), recent = candles.slice(Math.max(0, i-2), i+1);
     const touched = z => recent.some(b => b.low <= z.hi && b.high >= z.lo);
     const want = B.trig.map(k => TRIG_JA[k]);
     const trig = side => sgTriggers(i, side).filter(x => want.includes(x));
@@ -6248,7 +6277,7 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   }
   // 上位足の向き：ツールの自動判定（終値と EMA20・傾き・高値安値・ADX）。宣言モードでも AI はこれを使う
   function aiTrendState(tClose){ const tr = sgTrend(Z().B.tfs[0], tClose); return tr ? tr.state : 'range'; }
-  function setState(html){ AI.state = html; const el = $a('aiState'); if(el) el.innerHTML = html; }
+  function setState(html){ if(AI.trial) return; AI.state = html; const el = $a('aiState'); if(el) el.innerHTML = html; }   // 試し走りの間は「試しています…」を残す
 
   // ---------- 1回ごとの反省：負けの型（決済した時に、その後の足も見て付ける。判断には使わない） ----------
   function aiLessons(t){
@@ -6270,10 +6299,11 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
 
   // 足が進むたび：いつもの step のあとに AI が判断する（見ながら打つ）
   const _step = step;
-  step = function(){ _step(); if(AI.on && !AI.fast) aiDecide(); };
-  // 決済後：AI のトレードは反省を付けて記録だけ（画面は出さない）
+  step = function(){ if(!AI.on){ _step(); return; } withCfg(aiCfg(), () => { _step(); if(!AI.fast) aiDecide(); }); };
+  // 決済後：AI のトレードは反省を付けて記録だけ（画面は出さない）。試し走り（設定を試す）は記録もしない
   const _afterClose = sgAfterClose;
   sgAfterClose = function(t){
+    if(t && t.ai && AI.trial) return;
     if(t && t.ai){
       t.aiLesson = aiLessons(t);
       const cb = $('fbAuto'), was = cb.checked; cb.checked = false; try{ _afterClose(t); } finally{ cb.checked = was; }
@@ -6283,7 +6313,9 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   };
 
   // ---------- 一気に打つ：今の足の最後まで、画面を描かずに進める。from＝始める足（省略＝今の位置、未開始なら最初） ----------
-  async function runFast(from){
+  // opt.cfg＝使う設定（省略＝aiCfg()）、opt.trial＝試し走り（履歴・ログ・ボックスに残さない。結果の list だけ返す）
+  async function runFast(from, opt){
+    opt = opt || {};
     const bz = Z(); if(!bz || !bz.saved){ setState('先に「自分のバイアス」を設定してください'); return null; }
     const etf = bz.tfAt(2);
     if(curTF !== etf){ document.querySelectorAll('#tfSeg button').forEach(x => x.classList.toggle('on', x.dataset.v === etf)); curTF = etf; await reloadKeepReplay(); }
@@ -6291,26 +6323,31 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     if(from != null) startReplayAt(Math.min(candles.length-2, Math.max(1, from)));
     else if(idx < 0 || idx >= candles.length-1) startReplayAt(Math.min(candles.length-2, 30));
     stopPlay();
-    AI.fast = true; AI.stop = false; AI.runId = Date.now().toString(36); brokenZones = [];
-    $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = $a('aiLearnBtn').hidden = true; $a('aiStopBtn').hidden = false; $a('aiBar').hidden = false;
-    const n0 = trades.length, i0 = idx, total = candles.length - 1 - i0, t0 = performance.now();
+    const cfg = opt.cfg || aiCfg();
+    AI.fast = true; AI.trial = !!opt.trial; AI.stop = false; AI.runId = Date.now().toString(36); brokenZones = [];
+    if(!AI.trial){ $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = $a('aiLearnBtn').hidden = $a('aiTuneBtn').hidden = true; $a('aiStopBtn').hidden = false; }
+    $a('aiBar').hidden = false;
+    const n0 = trades.length, b0 = closedBoxes.length, i0 = idx, total = candles.length - 1 - i0, t0 = performance.now();
     let k = 0;
     while(idx < candles.length-1 && !AI.stop){
       idx++;
       const bar = candles[idx];
       replayT = bar.time + tfSec();
-      if(typeof sgOnStep === 'function') sgOnStep(bar);
-      if(pos && bar.time + barSec() > pos.endT) pos.endT = bar.time + barSec();
-      checkExit(bar);
-      aiDecide();
-      if((++k & 255) === 0){ $a('aiBar').querySelector('i').style.width = `${Math.round((idx - i0)/total*100)}%`; setState(`一気に打っています… ${Math.round((idx - i0)/total*100)}%（${trades.length - n0}回）`); await new Promise(r => setTimeout(r, 0)); }
+      withCfg(cfg, () => {
+        if(typeof sgOnStep === 'function') sgOnStep(bar);
+        if(pos && bar.time + barSec() > pos.endT) pos.endT = bar.time + barSec();
+        checkExit(bar);
+        aiDecide();
+      });
+      if((++k & 255) === 0){ const pct = Math.round((idx - i0)/total*100); $a('aiBar').querySelector('i').style.width = `${pct}%`; if(!AI.trial) setState(`一気に打っています… ${pct}%（${trades.length - n0}回）`); await new Promise(r => setTimeout(r, 0)); }
     }
     if(pos) cancelPosition();   // 最後まで決まらなかった分は数えない
     AI.fast = false;
-    series.setData(candles.slice(0, idx+1)); refreshEma(); scrollToCurrent();
-    $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = $a('aiLearnBtn').hidden = false; $a('aiStopBtn').hidden = true; $a('aiBar').hidden = true;
     const done = trades.slice(n0).filter(x => x.ai), w = done.filter(x => x.r > 0).length, l = done.filter(x => x.r < 0).length, R = done.reduce((s, x) => s + x.r, 0);
-    const res = {runId:AI.runId, i0, n:done.length, w, l, R, sec:(performance.now() - t0)/1000, from:bar0(i0), to:bar0(idx)};
+    const res = {runId:AI.runId, i0, n:done.length, w, l, R, sec:(performance.now() - t0)/1000, from:bar0(i0), to:bar0(idx), list:done};
+    if(AI.trial){ AI.trial = false; trades.length = n0; closedBoxes.length = b0; renderLog(); renderStats(); return res; }
+    series.setData(candles.slice(0, idx+1)); refreshEma(); scrollToCurrent();
+    $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = $a('aiLearnBtn').hidden = $a('aiTuneBtn').hidden = false; $a('aiStopBtn').hidden = true; $a('aiBar').hidden = true;
     setState(`終わりました：${done.length}回　${w}勝${l}敗 <b>${R >= 0 ? '+' : ''}${R.toFixed(1)}R</b>（${res.sec.toFixed(0)}秒・${res.from}〜${res.to}）<br>履歴に 🤖 の印と反省を保存しました。［分析］で負けの型を見る`);
     renderScore();
     return res;
@@ -6375,6 +6412,98 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     renderScore();
     setState(`反省が終わりました：今は ${base.n}回 ${base.w}勝${base.l}敗 <b>${fmt(base.R)}</b>。学んだことは下に（切ったり消したりできる）`);
   }
+  // ---------- 設定を試す：SL・TP・最低RR・合図・ブレイク・ゾーンの反応回数を1つずつ替えて走る（作戦と上位足の判定は変えない） ----------
+  // 期間を前半60%（学ぶ）と後半40%（確かめる）に分け、前半で 1回あたり +0.03R 以上良くなり、後半でも悪くならないものだけ残す。1項目ずつ全部を2周。
+  // 試し走りは履歴に残さない。見つかったら、その設定で1回走って履歴に 🤖 で残す。見つけた設定は AI だけが使う（あなたのバイアスは変えない）
+  const TRIG_SETS = [['engulf', 'pin', 'strong'], ['engulf', 'pin'], ['engulf', 'strong'], ['pin', 'strong'], ['engulf'], ['pin'], ['strong']];
+  const AXES = [
+    {k:'sl', name:'SL', vals:['swing', 'trig'], ja:v => v === 'trig' ? '合図の足の外' : '直近の安値（高値）の外'},
+    {k:'tp', name:'TP', vals:['2r', '3r', 'next'], ja:v => v === '3r' ? '3R' : v === 'next' ? '次の高値（安値）の手前' : '2R'},
+    {k:'rr', name:'最低RR', vals:['1.5', '2', '3'], ja:v => `1:${v}`},
+    {k:'trig', name:'合図', vals:TRIG_SETS, ja:v => (v || []).map(x => TRIG_JA[x]).join('・')},
+    {k:'bk', name:'ブレイク', vals:['close', 'retest'], ja:v => v === 'close' ? '抜けた足の確定' : '戻りを待つ'},
+    {k:'minN', name:'ゾーンの反応', vals:[2, 3, 4], ja:v => `${v}回以上`},
+  ];
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const usesBreak = B => B.plays.up.includes('brk') || B.plays.down.includes('brk') || B.plays.range.includes('wait');
+  // 1回の走りを、前半（学ぶ）と後半（確かめる）に分けて数える
+  function splitRes(list, cutT){
+    const sum = L => { const n = L.length, R = L.reduce((s, x) => s + x.r, 0); return {n, avg: n ? R/n : 0, R}; };
+    return {a:sum(list.filter(x => x.entryTime < cutT)), b:sum(list.filter(x => x.entryTime >= cutT)), n:list.length, R:list.reduce((s, x) => s + x.r, 0)};
+  }
+  const resTxt = s => `学ぶ ${fmt(s.a.avg)}／確かめる ${fmt(s.b.avg)}（${s.a.n}＋${s.b.n}回）`;
+  async function tune(){
+    if(AI.learning) return;
+    const bz = Z(); if(!bz || !bz.saved){ setState('先に「自分のバイアス」を設定してください'); return; }
+    if(!candles.length) return;
+    AI.learning = true; AI.stop = false;
+    $a('aiLog').hidden = false; $a('aiLog').innerHTML = '';
+    $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = $a('aiLearnBtn').hidden = $a('aiTuneBtn').hidden = true; $a('aiStopBtn').hidden = false;
+    const log = s => { $a('aiLog').insertAdjacentHTML('beforeend', `<div>${s}</div>`); $a('aiLog').scrollTop = 1e9; };
+    const finish = () => { AI.learning = false; $a('aiFastBtn').hidden = $a('aiPlayBtn').hidden = $a('aiLearnBtn').hidden = $a('aiTuneBtn').hidden = false; $a('aiStopBtn').hidden = true; $a('aiBar').hidden = true; renderPanel(); };
+    const start = (idx < 0 || idx >= candles.length-1) ? 30 : idx;
+    const cutT = candles[Math.min(candles.length-1, start + Math.floor((candles.length-1 - start)*0.6))].time;
+    const axes = AXES.filter(a => a.k !== 'bk' || usesBreak(bz.B));
+    const base = aiCfg(), tpR = c => c.tp === '2r' ? 2 : c.tp === '3r' ? 3 : 99;
+    const max = axes.reduce((s, a) => s + a.vals.length - 1, 0)*2 + 1;
+    let k = 0, best = {...base}, bestS = null;
+    const run = async (cfg, label) => { k++; setState(`試しています… ${k}／${max}<br>今：${label}`); const r = await runFast(start, {cfg, trial:true}); return r ? splitRes(r.list, cutT) : null; };
+    const baseS = await run(base, '今の設定で走っている');
+    if(!baseS || AI.stop){ setState('止めました'); finish(); return; }
+    bestS = baseS;
+    log(`① 今の設定：${resTxt(baseS)}（${bar0(start)}〜${bar0(candles.length-1)}）`);
+    if(baseS.a.n < 30 || baseS.b.n < 15) log('回数が少ない（学ぶ30回・確かめる15回は要る）。期間を長くすると確かになる');
+    for(let pass = 0; pass < 2 && !AI.stop; pass++){
+      let moved = false;
+      for(const ax of axes){
+        for(const v of ax.vals){
+          if(AI.stop) break;
+          if(same(v, best[ax.k])) continue;
+          const cand = {...best, [ax.k]: v};
+          if(tpR(cand) < +cand.rr){ k++; continue; }   // TP が 2R（3R）固定なのに最低RR がそれより大きい＝1回も入れない。飛ばす
+          const s = await run(cand, `${ax.name}を「${ax.ja(v)}」にして走っている`);
+          if(!s || AI.stop) break;
+          const enough = s.a.n >= 30 && s.b.n >= 15;
+          const ok = enough && s.a.avg >= bestS.a.avg + 0.03 && s.b.avg >= bestS.b.avg - 1e-9;
+          log(`${ax.name}「${ax.ja(v)}」→ ${resTxt(s)} ${ok ? '<span class="up">→ 採った</span>' : `<span class="dn">→ 捨てた（${!enough ? '回数が少ない' : s.a.avg < bestS.a.avg + 0.03 ? '前半で良くならない' : '後半で悪くなる'}）</span>`}`);
+          if(ok){ best = cand; bestS = s; moved = true; }
+        }
+      }
+      if(!moved) break;
+      if(pass === 0 && !AI.stop) log('── 2周目（替えたあとで、もう一度ほかの項目を試す）──');
+    }
+    const diff = axes.filter(a => !same(best[a.k], base[a.k])).map(a => a.name);
+    if(AI.stop) log('止めました（ここまでで採ったものは残す）');
+    if(diff.length){
+      ls(LS_TUNE, {...best, on:true, at:Date.now(), res:{base:baseS, best:bestS, from:bar0(start), to:bar0(candles.length-1), diff}});
+      renderTune();
+      log(`② 見つけた：${diff.join('・')}を替えると ${resTxt(baseS)} → <b>${resTxt(bestS)}</b>`);
+      AI.stop = false;
+      const fin = await runFast(start);   // 見つけた設定で1回走って、履歴に 🤖 で残す
+      if(fin) log(`③ 見つけた設定で走った：${fin.n}回 ${fin.w}勝${fin.l}敗 <b>${fmt(fin.R)}</b>（履歴に残した）`);
+      setState(`設定を試し終わりました：<b>${diff.length}つ</b>替えると、学ぶ期間 ${fmt(baseS.a.avg)} → <b>${fmt(bestS.a.avg)}／回</b>、確かめる期間 ${fmt(baseS.b.avg)} → <b>${fmt(bestS.b.avg)}／回</b>（${baseS.n}回 → ${bestS.n}回）。<br>替えたのは ${diff.join('・')}。AI はこの設定で打つ（下の表）。あなたのバイアスは変えていない`);
+    } else if(AI.stop){
+      setState('止めました（まだ何も替えていない）');
+    } else {
+      setState(`設定を試し終わりました：今の設定が一番だった（${resTxt(baseS)}）。替えても前半で良くならないか、後半で悪くなる`);
+    }
+    finish();
+  }
+  function renderTune(){
+    const el = $a('aiTune'); if(!el) return;
+    const t = tuned(), B = Z().B;
+    if(!t){ el.innerHTML = '<div class="muted">まだ試していません。［🧪 設定を試す］で、SL・TP・最低RR・合図・ブレイク・ゾーンの反応回数を1つずつ替えて走り、良くなる組み合わせを探します（作戦は変えない。期間は「1年」以上がよい）。</div>'; return; }
+    const mine = {sl:B.sl, tp:B.tp, rr:B.rr, trig:B.trig, bk:B.bk, minN:2}, on = t.on !== false, r = t.res;
+    const rows = AXES.map(a => { const chg = !same(t[a.k], mine[a.k]); return `<tr${chg ? ' class="chg"' : ''}><td>${a.name}</td><td>${a.ja(mine[a.k])}</td><td>${a.ja(t[a.k])}</td></tr>`; }).join('');
+    el.innerHTML = `<table class="aiTbl"><thead><tr><th>項目</th><th>あなた</th><th>AI</th></tr></thead><tbody>${rows}</tbody></table>
+      ${r && r.best ? `<div class="aiGrid"><div>学ぶ（前半）<b class="${r.best.a.avg >= 0 ? 'up' : 'dn'}">${fmt(r.best.a.avg)}</b></div><div>確かめる（後半）<b class="${r.best.b.avg >= 0 ? 'up' : 'dn'}">${fmt(r.best.b.avg)}</b></div><div>回数<b>${r.best.a.n}＋${r.best.b.n}</b></div><div>累計<b class="${r.best.R >= 0 ? 'up' : 'dn'}">${r.best.R >= 0 ? '+' : '−'}${Math.abs(r.best.R).toFixed(1)}R</b></div></div>` : ''}
+      <div class="row"><button class="aiSw${on ? ' on' : ''}" id="aiTuneOn" aria-label="見つけた設定で打つ"></button><span>${on ? '見つけた設定で打つ' : 'あなたのバイアスで打つ（見つけた設定は休み）'}</span><button id="aiTuneAdopt">自分のバイアスにする</button><button id="aiTuneDel">捨てる</button></div>
+      <div class="muted">${r ? `${r.from}〜${r.to} で試した（${new Date(t.at).toLocaleDateString('ja-JP')}）。` : ''}あなたのバイアス（設定画面）は変わらない。［自分のバイアスにする］で設定画面にも写す（「ゾーンの反応」は AI だけの項目）</div>`;
+    $a('aiTuneOn').onclick = () => { ls(LS_TUNE, {...t, on:!on}); renderPanel(); };
+    $a('aiTuneDel').onclick = () => { ls(LS_TUNE, null); renderPanel(); setState('見つけた設定を捨てました。AI はあなたのバイアスで打つ'); };
+    $a('aiTuneAdopt').onclick = () => { B.sl = t.sl; B.tp = t.tp; B.rr = t.rr; B.trig = t.trig.slice(); B.bk = t.bk; if(Z().save) Z().save(); renderPanel(); setState('あなたのバイアスに写しました（SL・TP・最低RR・合図・ブレイク）。設定画面にも出ます'); };
+  }
+
   // ---------- 見張り役に教える：学んだこと（入らない条件）を、見張り役の /rules（入る条件）の形にして送る ----------
   // 見張り役の項目：session／side／rough／n（ゾーンの反応）／nextR／state。作戦・曜日・描いたボックスは見張り役にないので送れない
   const WATCH_URL = 'https://shadow-watch.shadow-watch.workers.dev';
@@ -6419,12 +6548,13 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
     const B = bz.B, chips = [];
     for(const st of ['up', 'down', 'range']) for(const a of B.plays[st]){ if(a === 'skip') continue; const n = bz.PLAY_FOR[st].long[a] || bz.PLAY_FOR[st].short[a]; if(n) chips.push(`<span class="pill">${STATE_JA[st]}・${n}</span>`); }
     $a('aiPlays').innerHTML = chips.join('') || '<span class="muted">作戦が選ばれていません（設定で選ぶ）</span>';
-    $a('aiRuleTxt').textContent = `${B.tfs[0]} の向きは自動判定。${bz.tfAt(2)} で${B.trig.map(k => TRIG_JA[k]).join('・')}が確定したら、ゾーン（ツール＋描いたボックス）で入る。SL：${B.sl === 'trig' ? '合図の足の外' : '直近の安値（高値）の外'}／TP：${B.tp === '3r' ? '3R' : B.tp === 'next' ? '次の高値（安値）の手前' : '2R'}／最低RR 1:${B.rr}／損切り直後の3本は入らない・2連敗したら今日は終わり`;
-    renderScore(); renderLearned();
+    const C = aiCfg(), tn = tuned(), useT = tn && tn.on !== false;
+    $a('aiRuleTxt').textContent = `${B.tfs[0]} の向きは自動判定。${bz.tfAt(2)} で${C.trig.map(k => TRIG_JA[k]).join('・')}が確定したら、ゾーン（ツール${C.minN > 2 ? `は${C.minN}回以上反応` : ''}＋描いたボックス）で入る。SL：${C.sl === 'trig' ? '合図の足の外' : '直近の安値（高値）の外'}／TP：${C.tp === '3r' ? '3R' : C.tp === 'next' ? '次の高値（安値）の手前' : '2R'}／最低RR 1:${C.rr}／損切り直後の3本は入らない・2連敗したら今日は終わり${useT ? '（試して見つけた設定）' : ''}`;
+    renderScore(); renderLearned(); renderTune();
   }
   window.aiSetOn = on => {
     AI.on = on; $a('aiBox').hidden = !on;
-    if(on){ renderPanel(); if(!AI.state) setState('待機中。［見ながら打つ］［一気に打つ］［反省して強くなる］'); }
+    if(on){ renderPanel(); if(!AI.state) setState('待機中。［見ながら打つ］［一気に打つ］［反省して強くなる］［設定を試す］'); }
     else if(AI.fast) AI.stop = true;
   };
   $a('aiPlayBtn').onclick = async () => {
@@ -6436,11 +6566,14 @@ return {run, analyze, FEAT, features, passRules, autoZones, check, atr, M15, H1}
   };
   $a('aiFastBtn').onclick = () => runFast();
   $a('aiLearnBtn').onclick = improve;
+  $a('aiTuneBtn').onclick = tune;
   $a('aiTeachBtn').onclick = teach;
   $a('aiKey').value = ls('shadowtrading.watchKey') || '';
   $a('aiKey').onchange = () => ls('shadowtrading.watchKey', $a('aiKey').value.trim());
   $a('aiStopBtn').onclick = () => { AI.stop = true; };
   $a('aiEduBtn').onclick = () => { if(window.eduOpen) window.eduOpen(); };
+  // 開いた時に AI モードなら表示する。モードの処理（上の方）の setTimeout は、この部品ができる前に動くことがあるため、ここでも
+  try{ if(localStorage.getItem('shadowtrading.mode') === 'ai') window.aiSetOn(true); }catch(e){}
 
   // ---------- 分析：AI の履歴を条件ごとに数える（最新の走り／全部） ----------
   document.body.insertAdjacentHTML('beforeend', `<div class="modal" id="aiStatModal" hidden><div class="sheet aiStat" role="dialog" aria-labelledby="aiStatTitle">
