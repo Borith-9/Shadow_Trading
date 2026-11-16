@@ -31,7 +31,10 @@ self.addEventListener('fetch', e=>{
   const url = new URL(req.url);
   if(url.origin === location.origin){
     if(!url.pathname.startsWith(SCOPE_PATH)) return;
-    if(req.mode === 'navigate' || url.origin + url.pathname === PAGE) e.respondWith(pageFirst(req));
+    if(req.mode === 'navigate' || url.origin + url.pathname === PAGE){
+      if(url.pathname !== new URL(PAGE).pathname && url.pathname !== SCOPE_PATH) return;   // 別のページ（draw/ など）はネットへ。保存版の index.html を上書きしない
+      e.respondWith(pageFirst(req));
+    }
     else e.respondWith(cacheFirst(req, CORE, true));
   }else if(url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com'){
     e.respondWith(cacheFirst(req, FONTS, false));
