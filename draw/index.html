@@ -890,7 +890,7 @@ cw.addEventListener('wheel', hideCtx, {passive: true});
 /* ---------- 見張りゾーンを描く（LIVE）：最新の足・山と谷の計算・見張り役に送る ---------- */
 const WATCH_URL = 'https://shadow-watch.shadow-watch.workers.dev';
 const LK_KEY = 'draw.live.key', LB_KEY = 'draw.live.bars';
-const liveKey = () => { try { return localStorage.getItem(LK_KEY) || ''; } catch (e) { return ''; } };
+const liveKey = () => { try { return localStorage.getItem(LK_KEY) || localStorage.getItem('shadowtrading.watchKey') || ''; } catch (e) { return ''; } };   // Shadow（同じ github.io）の教育・AI で入れた合言葉があればそれを使う
 function lmsg(t, cls) { const el = $('lMsg'); el.textContent = t; el.className = cls || ''; }
 function lstat(t) { $('lStat').textContent = t; }
 // 山と谷（swings.py の atr・zigzag と同じ式）。足をつぎ足した後に全部計算し直す
