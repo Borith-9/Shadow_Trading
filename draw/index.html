@@ -168,7 +168,7 @@
     <aside class="side">
       <div class="card" id="liveBox" hidden>
         <h2>見張り役<small id="lStat" title="1分おきに見張り役から新しい足を取ります（見張り役は5分おきに金の値段を見ています）">—</small></h2>
-        <p class="note">ゾーン（箱）を描いて［見張り役に送る］。右へ伸ばした箱が全部、見張り役のゾーンになります（前に送った分は入れ替え）。Telegram の /list で見られます。</p>
+        <p class="note">ゾーン（箱）を描いて［見張り役に送る］。右へ伸ばした箱が全部、見張り役のゾーンになります（前に送った分は入れ替え）。Telegram の /list で見られます。［買い LIMIT］［売り LIMIT］で予約注文のロットを計算します（記録はしません）。</p>
         <div class="lkey"><input type="password" id="lKey" placeholder="合言葉（最初に1回）" autocomplete="off"><button type="button" class="ghost" id="lKeySave">保存</button></div>
         <div class="row"><button type="button" class="primary" id="lSend">見張り役に送る</button><button type="button" class="ghost" id="lReload">最新の足にする</button></div>
         <p id="lMsg"></p>
@@ -420,9 +420,10 @@ function drawPos(x) {
   if (edit || w > 60) {
     tag(xa, ys, `損切り ${f2(x.sl)}（−${f2(risk)}）`, dn, ys < ye ? 'above' : 'below');
     if (yt != null) tag(xa, yt, `利確 ${f2(x.tp)}（+${f2(Math.abs(x.tp - x.entry))} ＝ ${(Math.abs(x.tp - x.entry) / risk).toFixed(2)}R）`, up, yt < ye ? 'above' : 'below');
-    tag(xa, ye, `${x.side === 1 ? '買い' : '売り'} ${f2(x.entry)}`, gold, 'left');
+    const L = LIVE && edit ? lotCalc(x.entry, x.sl, x.tp) : null;
+    tag(xa, ye, `${x.side === 1 ? '買い' : '売り'} ${f2(x.entry)}${L ? '　' + (L.lot >= L.cfg.step ? L.lot.toFixed(2) + ' ロット' : 'ロット 0.01 未満') : ''}`, gold, 'left');
   }
-  if (edit) [[ys, dn, 'sl'], [yt, up, 'tp']].forEach(([y, col, k]) => {
+  if (edit) [[ys, dn, 'sl'], [yt, up, 'tp'], ...(LIVE ? [[ye, gold, 'entry']] : [])].forEach(([y, col, k]) => {
     if (y == null) return; const r = pdrag && pdrag.k === k ? 7 : 5;
     ctx.beginPath(); ctx.arc(xa + w / 2, y, r, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
   });
@@ -561,9 +562,9 @@ const cw = $('cw');
 function posHit(x, y) {   // 記入中の箱の線の上か
   if (!pending || pending.sl == null) return null; const g = posGeom(pending); if (!g) return null;
   if (x < g.xa - 8 || x > g.xb + 8) return null;
-  const ys = yOf(pending.sl), yt = pending.tp != null ? yOf(pending.tp) : null;
-  const ds = ys == null ? 99 : Math.abs(y - ys), dt = yt == null ? 99 : Math.abs(y - yt);
-  if (Math.min(ds, dt) > 10) return null; return ds <= dt ? 'sl' : 'tp';
+  const ys = yOf(pending.sl), yt = pending.tp != null ? yOf(pending.tp) : null, ye = LIVE ? yOf(pending.entry) : null;
+  const ds = ys == null ? 99 : Math.abs(y - ys), dt = yt == null ? 99 : Math.abs(y - yt), de = ye == null ? 99 : Math.abs(y - ye);
+  if (Math.min(ds, dt, de) > 10) return null; return de < ds && de < dt ? 'entry' : ds <= dt ? 'sl' : 'tp';
 }
 function snapPrice(p, y) {   // 近くの水平線・山・谷の値段に吸い付く（6px まで）
   const tN = nowT(); let best = p, bd = 6;
@@ -649,17 +650,31 @@ function startEntry(side) {
   setMode('view'); render(); showEntry(); if (roGet() < 20) { settling = true; chart.timeScale().scrollToPosition(20, false); setTimeout(() => { settling = false; }, 50); }   // 箱の分、右に余白
   $('hint').hidden = false; $('hint').textContent = '赤（損切り）・緑（利確）の線をつまんで動かしてください'; setTimeout(() => { if (mode === 'view') $('hint').hidden = true; }, 3000);
 }
-function setLevel(which, p, dragging) {   // 損切り・利確を置く（入る値段の向こう側へは行かせない）
+function setLevel(which, p, dragging) {   // 損切り・利確を置く（入る値段の向こう側へは行かせない）。LIVE では入る値段（LIMIT）も
   if (!pending || !(p > 0)) return;
+  if (which === 'entry') {   // 入る値段を動かす：損切り・利確は同じ幅のままついて行く
+    const e0 = pending.entry; p = +p.toFixed(2); pending.entry = p; pending.sl = +(pending.sl + p - e0).toFixed(2); if (pending.tp != null) pending.tp = +(pending.tp + p - e0).toFixed(2);
+    updLines(); if (dragging) updNums(); else showEntry(); return;
+  }
   const dir = which === 'sl' ? -pending.side : pending.side, lim = +(pending.entry + dir * 0.1).toFixed(2);
   if ((p - lim) * dir < 0) { p = lim; if (!dragging) msg(which === 'sl' ? `損切りは入る値段より${pending.side === 1 ? '下' : '上'}にしてください` : `利確は入る値段より${pending.side === 1 ? '上' : '下'}にしてください`); }
-  pending[which] = +p.toFixed(2); updLines();
+  pending[which] = +p.toFixed(2);
+  if (LIVE && which === 'sl' && pending.tp != null) pending.tp = +(pending.entry + pending.side * lotCfg().rr * Math.abs(pending.entry - pending.sl)).toFixed(2);   // 規則 RR 1:2：損切りを決めたら利確は自動
+  updLines();
   if (dragging) updNums(); else showEntry();
 }
 function updNums() {   // 右の数字だけ直す（つまんで動かしている間）
   const x = pending; if (!x || !$('eSlIn')) return; const r = Math.abs(x.entry - x.sl);
-  $('eSlIn').value = x.sl.toFixed(2); if ($('eTpIn')) $('eTpIn').value = x.tp.toFixed(2);
+  $('eSlIn').value = x.sl.toFixed(2); if ($('eTpIn')) $('eTpIn').value = x.tp.toFixed(2); if ($('eEnIn')) $('eEnIn').value = x.entry.toFixed(2);
   $('eRisk').textContent = f2(r) + 'ドル'; $('eRR').textContent = x.tp != null ? '1 : ' + (Math.abs(x.tp - x.entry) / r).toFixed(2) : '—';
+  if (LIVE) lotFill();
+}
+function lotTxt(L) { return L.lot >= L.cfg.step ? `${L.lot.toFixed(2)} ロット` : `0.01 未満（損切り幅を ${f2(L.maxDist)}ドル以内に）`; }
+function lotFill() {   // 見張り用：ロットと損益の行
+  const x = pending, L = x ? lotCalc(x.entry, x.sl, x.tp) : null; if (!L || !$('eLot')) return;
+  $('eLot').textContent = lotTxt(L); $('eLot').className = L.lot >= L.cfg.step ? 'gold' : 'dn';
+  $('eLoss').textContent = `−${L.loss.toFixed(1)} USC（入金の ${(L.loss / L.cfg.deposit * 100).toFixed(1)}%）`;
+  $('eGain').textContent = L.gain != null ? `+${L.gain.toFixed(1)} USC` : '—';
 }
 const PLACE = ['谷・山の近く', 'ゾーン', 'FVG', 'OB（オーダーブロック）', 'ブレイク', '戻り（リテスト）', 'レンジの端', '線（トレンドライン）', 'その他'];
 const SIGNAL = ['包み足', 'ピンバー', 'リジェクト', 'リジェクトの調整', 'リクイディティ・スイープ', '強い実体足', '合図なし'];
@@ -669,11 +684,12 @@ function chipRow(label, key, list) {
 }
 function showEntry() {
   const el = $('entryCard');
-  $('bBuy').hidden = $('bSell').hidden = !!pending; $('bRec').hidden = $('bCancel').hidden = !pending;
+  $('bBuy').hidden = $('bSell').hidden = !!pending; $('bRec').hidden = LIVE || !pending; $('bCancel').hidden = !pending;
   $('bRec').disabled = !pending;
   if (!pending) { el.hidden = true; el.innerHTML = ''; return; }
   const x = pending, r = x.sl != null ? Math.abs(x.entry - x.sl) : null;
   el.hidden = false;
+  if (LIVE) { showLimit(x, r); return; }
   el.innerHTML = `<h2><span class="${x.side === 1 ? 'up' : 'dn'}">${x.side === 1 ? '買い' : '売り'}で入る</span><small>${nyMDHM(x.entryT)} NY</small></h2>
     <dl class="kv">
       <dt>入る値段</dt><dd class="gold">${f2(x.entry)}</dd>
@@ -697,6 +713,41 @@ function showEntry() {
   $('eSave').addEventListener('click', saveEntry);
   $('eCancel').addEventListener('click', () => { pending = null; setMode('view'); render(); showEntry(); });
 }
+function showLimit(x, r) {   // 見張り用：LIMIT の計算（記録はしない）。入る値段・損切りを決めると、利確（2R）とロット（固定リスク）が出る
+  const el = $('entryCard'), c = lotCfg();
+  el.innerHTML = `<h2><span class="${x.side === 1 ? 'up' : 'dn'}">${x.side === 1 ? '買い' : '売り'} LIMIT</span><small>ロットの計算</small></h2>
+    <dl class="kv">
+      <dt>入る値段</dt><dd><input class="num gold" id="eEnIn" type="number" step="0.01" inputmode="decimal" value="${x.entry.toFixed(2)}" aria-label="入る値段"></dd>
+      <dt>損切り</dt><dd><input class="num dn" id="eSlIn" type="number" step="0.01" inputmode="decimal" value="${x.sl.toFixed(2)}" aria-label="損切りの値段"></dd>
+      <dt>利確（${c.rr}R）</dt><dd><input class="num up" id="eTpIn" type="number" step="0.01" inputmode="decimal" value="${x.tp != null ? x.tp.toFixed(2) : ''}" aria-label="利確の値段"></dd>
+      <dt>損切り幅</dt><dd id="eRisk">${f2(r) + 'ドル'}</dd>
+      <dt>RR</dt><dd id="eRR">${x.tp != null ? '1 : ' + (Math.abs(x.tp - x.entry) / r).toFixed(2) : '—'}</dd>
+      <dt>ロット</dt><dd id="eLot"></dd>
+      <dt>負けたら</dt><dd id="eLoss"></dd>
+      <dt>勝ったら</dt><dd id="eGain"></dd>
+    </dl>
+    <p class="msg" id="eMsg">金（黄）・赤・緑の線をつまんで動かす（上の数字でも直せます）。損切りを決めると利確は ${c.rr}R に自動で置きます。</p>
+    <details><summary class="note">計算の設定（リスク ${c.risk} USC・入金 ${c.deposit} USC・1ロット1ドル＝${c.perDollar} USC）</summary>
+      <dl class="kv">
+        <dt>リスク USC</dt><dd><input class="num" id="lRisk" type="number" step="1" value="${c.risk}"></dd>
+        <dt>入金 USC</dt><dd><input class="num" id="lDep" type="number" step="1" value="${c.deposit}"></dd>
+        <dt>1ロット1ドル USC</dt><dd><input class="num" id="lPer" type="number" step="1" value="${c.perDollar}" title="1ロット持って値段が1ドル動いた時の損益（USC）。口座の仕様で違う。MT5 の仕様（契約サイズ）で確かめる"></dd>
+        <dt>RR</dt><dd><input class="num" id="lRR" type="number" step="0.5" value="${c.rr}"></dd>
+      </dl>
+      <p class="note">ロット＝リスク ÷（損切り幅 × 1ロット1ドル）。0.01 単位で切り捨て。</p>
+    </details>
+    <div class="row"><button type="button" class="ghost" id="eCancel">やめる</button></div>`;
+  lotFill();
+  $('eEnIn').addEventListener('change', e => setLevel('entry', +e.target.value));
+  $('eSlIn').addEventListener('change', e => setLevel('sl', +e.target.value));
+  $('eTpIn').addEventListener('change', e => setLevel('tp', +e.target.value));
+  for (const [id, k] of [['lRisk', 'risk'], ['lDep', 'deposit'], ['lPer', 'perDollar'], ['lRR', 'rr']]) $(id).addEventListener('change', e => {
+    const v = +e.target.value; if (!(v > 0)) return; const o = lotCfg(); o[k] = v; store.set(LOT_KEY, o);
+    if (k === 'rr' && pending.tp != null) pending.tp = +(pending.entry + pending.side * v * Math.abs(pending.entry - pending.sl)).toFixed(2);
+    updLines(); showEntry();
+  });
+  $('eCancel').addEventListener('click', () => { pending = null; setMode('view'); render(); showEntry(); });
+}
 function msg(t) { const m = $('eMsg'); if (m) m.textContent = t; else { $('hint').hidden = false; $('hint').textContent = t; setTimeout(() => { if (mode === 'view') $('hint').hidden = true; }, 2200); } }
 function resolveTrades() {
   const M = S().M, end = S().end;
@@ -713,6 +764,7 @@ function resolveTrades() {
   listTrades();
 }
 async function saveEntry() {
+  if (LIVE) return;   // 見張り用は記録しない（LIMIT の計算だけ）
   const x = pending; if (!x || x.sl == null) return;
   const s = S();
   const doc = {scene: 'all', date: nyYMD(x.entryT), side: x.side, entryT: x.entryT, entryNY: nyMDHM(x.entryT), entry: x.entry, sl: x.sl, tp: x.tp,
@@ -965,6 +1017,14 @@ async function liveFetch() {
   return added + await liveFetch5();
 }
 let liveNow = null, liveTimer = null;
+// ロットの計算（Borith 2026-11-16：RR 1:2、リスク固定 20 USC、入金 1000 USC）。1ロットで値段が1ドル動いた時の損益（USC）は口座で違うので設定にする（セント口座の既定 100）
+const LOT_KEY = 'draw.live.lot';
+function lotCfg() { const d = {risk: 20, deposit: 1000, perDollar: 100, step: 0.01, rr: 2}; try { return {...d, ...(store.get(LOT_KEY) || {})}; } catch (e) { return d; } }
+function lotCalc(entry, sl, tp) {   // {dist, lot, lotRaw, loss, gain, maxDist}
+  const c = lotCfg(), dist = Math.abs(entry - sl); if (!(dist > 0)) return null;
+  const lotRaw = c.risk / (dist * c.perDollar), lot = Math.floor(lotRaw / c.step + 1e-9) * c.step;
+  return {dist, lot: +lot.toFixed(2), lotRaw, loss: lot * dist * c.perDollar, gain: tp != null ? lot * Math.abs(tp - entry) * c.perDollar : null, maxDist: c.risk / (c.perDollar * c.step), pct: c.risk / c.deposit * 100, cfg: c};
+}
 function liveStatTxt() {   // 右上：最新の足と、見張り役が最後に見た値段
   const t = S().M.t[S().end] + 900, F = S().M5, L = [`最新の足 ${nyMDHM(t)} NY`];
   if (F.t.length) L.push(`5分 ${nyHM(F.t[F.t.length - 1] + 300)}`);
@@ -986,7 +1046,8 @@ function liveApply(added) {   // つぎ足した後：山と谷を計算し直�
   return t;
 }
 async function liveStart() {
-  $('liveBox').hidden = false; $('tf5m').hidden = false; $('bBuy').hidden = $('bSell').hidden = true; $('tList').parentElement.hidden = true; $('cHist').parentElement.hidden = true;
+  $('liveBox').hidden = false; $('tf5m').hidden = false; $('tList').parentElement.hidden = true; $('cHist').parentElement.hidden = true;
+  $('bBuy').textContent = '買い LIMIT'; $('bSell').textContent = '売り LIMIT'; $('bBuy').title = '買いの予約注文の計算（B）'; $('bSell').title = '売りの予約注文の計算（S）';
   document.title = '見張りゾーンを描く'; document.querySelector('header h1').textContent = '見張りゾーンを描く';
   $('lKey').value = liveKey() ? '••••••••' : '';
   const cached = appendBars(store.get(LB_KEY) || []) + appendBars(store.get(LB5_KEY) || [], S().M5);   // 前に取った分（この端末）
