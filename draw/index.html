@@ -168,7 +168,7 @@
     <aside class="side">
       <div class="card" id="liveBox" hidden>
         <h2>見張り役<small id="lStat" title="1分おきに見張り役から新しい足を取ります（見張り役は5分おきに金の値段を見ています）">—</small></h2>
-        <p class="note">ゾーン（箱）を描いて［見張り役に送る］。右へ伸ばした箱が全部、見張り役のゾーンになります（前に送った分は入れ替え）。Telegram の /list で見られます。［買い LIMIT］［売り LIMIT］で予約注文のロットを計算します（記録はしません）。</p>
+        <p class="note">ゾーン（箱）を描いて［見張り役に送る］。右へ伸ばした箱が全部、見張り役のゾーンになります（前に送った分は入れ替え）。Telegram の /list で見られます。線（╱）も送れます：線を右へ伸ばした今の値段の所を、細いゾーンとして見張ります。［買い LIMIT］［売り LIMIT］で予約注文のロットを計算します（記録はしません）。</p>
         <div class="lkey"><input type="password" id="lKey" placeholder="合言葉（最初に1回）" autocomplete="off"><button type="button" class="ghost" id="lKeySave">保存</button></div>
         <div class="row"><button type="button" class="primary" id="lSend">見張り役に送る</button><button type="button" class="ghost" id="lReload">最新の足にする</button></div>
         <p id="lMsg"></p>
@@ -1069,17 +1069,19 @@ $('lReload').addEventListener('click', async () => {
 $('lSend').addEventListener('click', async () => {
   const key = liveKey(); if (!key) { lmsg('先に合言葉を入れて［保存］してください。', 'dn'); return; }
   const zones = draws.filter(d => d.type === 'box' && d.ext).map(d => ({k: d.id, lo: Math.min(d.p1, d.p2), hi: Math.max(d.p1, d.p2)}));
-  if (!zones.length) { lmsg('右へ伸ばした箱がありません。［▭ ゾーン］で描いてください。', 'dn'); return; }
+  const lines = draws.filter(d => d.type === 'tl' && d.t1 !== d.t2).map(d => ({k: d.id, t1: d.t1, p1: d.p1, t2: d.t2, p2: d.p2}));   // 線も（右へ伸ばして見張る）
+  if (!zones.length && !lines.length) { lmsg('右へ伸ばした箱も線もありません。［▭ ゾーン］か［╱ 線］で描いてください。', 'dn'); return; }
   $('lSend').disabled = true; lmsg('送っています…');
   let j;
-  try { const r = await fetch(`${WATCH_URL}/zones`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({key, zones})}); j = await r.json(); }
+  try { const r = await fetch(`${WATCH_URL}/zones`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({key, zones, lines})}); j = await r.json(); }
   catch (e) { j = {ok: false, error: 'つながりません：' + e.message}; }
   $('lSend').disabled = false;
   if (!j.ok) { lmsg('見張り役：' + j.error, 'dn'); return; }
   const role = z => z.role === 'sup' ? 'サポート' : 'レジスタンス';
   const L = [`見張り役に ${j.added.length}個 入りました（今 ${f2(j.price)}）。Telegram にも届いています。`, ...j.added.map(z => `・${role(z)} ${f2(z.lo)}〜${f2(z.hi)}${z.wide ? `　⚠ 幅 ${z.wide}（1H ATR の半分 ${(j.atr / 2).toFixed(2)} より広い）` : ''}`)];
   if (j.skipped.length) L.push(`入らなかった ${j.skipped.length}個：`, ...j.skipped.map(z => `・${f2(z.lo)}〜${f2(z.hi)}：${z.why}`));
-  lmsg(L.join('\n'), j.skipped.length ? 'dn' : 'up');
+  if (j.lines) { L.push(`線 ${j.lines.length}本（今の値段の所を見張ります）`, ...j.lines.map(l => `・${role(l)}の線 今 ${f2(l.p)}`)); if (j.linesSkipped.length) L.push(`入らなかった線 ${j.linesSkipped.length}本：`, ...j.linesSkipped.map(l => `・${l.why}`)); }
+  lmsg(L.join('\n'), j.skipped.length || (j.linesSkipped || []).length ? 'dn' : 'up');
 });
 
 /* ---------- 始める ---------- */
