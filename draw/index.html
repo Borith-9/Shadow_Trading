@@ -164,7 +164,7 @@
 
     <aside class="side">
       <div class="card" id="liveBox" hidden>
-        <h2>見張り役<small id="lStat">—</small></h2>
+        <h2>見張り役<small id="lStat" title="1分おきに見張り役から新しい足を取ります（見張り役は5分おきに金の値段を見ています）">—</small></h2>
         <p class="note">ゾーン（箱）を描いて［見張り役に送る］。右へ伸ばした箱が全部、見張り役のゾーンになります（前に送った分は入れ替え）。Telegram の /list で見られます。</p>
         <div class="lkey"><input type="password" id="lKey" placeholder="合言葉（最初に1回）" autocomplete="off"><button type="button" class="ghost" id="lKeySave">保存</button></div>
         <div class="row"><button type="button" class="primary" id="lSend">見張り役に送る</button><button type="button" class="ghost" id="lReload">最新の足にする</button></div>
@@ -940,12 +940,26 @@ async function liveFetch() {
   if (!j.ok) { lstat('取れません'); lmsg('見張り役：' + j.error, 'dn'); return -1; }
   const added = appendBars(j.bars || []);
   if (added) { const kept = (store.get(LB_KEY) || []).concat(j.bars); store.set(LB_KEY, kept.slice(-20000)); }
+  liveNow = {at: j.at || j.now, price: j.live ? j.live[4] : null};
   return added;
+}
+let liveNow = null, liveTimer = null;
+function liveStatTxt() {   // 右上：最新の足と、見張り役が最後に見た値段
+  const t = S().M.t[S().end] + 900, L = [`最新の足 ${nyMDHM(t)} NY`];
+  if (liveNow && liveNow.price != null) L.push(`今 ${f2(liveNow.price)}（${nyHM(liveNow.at)}）`);
+  return L.join('・');
+}
+async function livePoll() {   // 1分おき：新しい足があれば足す。最後の足を見ていた時だけ、そのまま先へ進める
+  if (document.hidden || !liveKey()) return;
+  const atEnd = now >= S().end, got = await liveFetch();
+  if (got > 0) { recomputePiv(); if (atEnd) { now = S().end; resolveTrades(); render(false); goRight(); saveLocal(); } else render(); }
+  if (got >= 0) lstat(liveStatTxt());
 }
 function liveApply(added) {   // つぎ足した後：山と谷を計算し直し、最後の足へ（added<0＝取れなかった。メッセージはそのまま）
   if (added > 0) recomputePiv();
   const t = S().M.t[S().end] + 900;
-  if (added >= 0) lstat(`最新の足 ${nyMDHM(t)} NY`);
+  if (added >= 0) lstat(liveStatTxt());
+  if (!liveTimer && liveKey()) liveTimer = setInterval(livePoll, 60 * 1000);
   now = S().end; resolveTrades(); render(false); applyBs(); goRight(); saveLocal();
   return t;
 }
@@ -956,14 +970,14 @@ async function liveStart() {
   const cached = appendBars(store.get(LB_KEY) || []);   // 前に取った分（この端末）
   const got = await liveFetch();
   const t = liveApply(got < 0 ? (cached ? cached : -1) : cached + got);
-  if (got >= 0) lmsg(`最新の足 ${nyMDHM(t)} NY まで。箱を描いて［見張り役に送る］。`);
+  if (got >= 0) lmsg(`最新の足 ${nyMDHM(t)} NY まで。1分おきに新しい足を足します。箱を描いて［見張り役に送る］。`);
 }
 $('lKeySave').addEventListener('click', async () => {
   const v = $('lKey').value.trim(); if (!v || v === '••••••••') return;
   try { localStorage.setItem(LK_KEY, v); } catch (e) {}
   $('lKey').value = '••••••••'; lmsg('');
   const got = await liveFetch(), t = liveApply(got);
-  if (got >= 0) lmsg(`最新の足 ${nyMDHM(t)} NY まで。箱を描いて［見張り役に送る］。`);
+  if (got >= 0) lmsg(`最新の足 ${nyMDHM(t)} NY まで。1分おきに新しい足を足します。箱を描いて［見張り役に送る］。`);
 });
 $('lReload').addEventListener('click', async () => {
   const added = await liveFetch(), t = liveApply(added);
