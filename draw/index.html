@@ -168,7 +168,7 @@
     <aside class="side">
       <div class="card" id="liveBox" hidden>
         <h2>見張り役<small id="lStat" title="1分おきに見張り役から新しい足を取ります（見張り役は5分おきに金の値段を見ています）">—</small></h2>
-        <p class="note">ゾーン（箱）を描いて［見張り役に送る］。右へ伸ばした箱が全部、見張り役のゾーンになります（前に送った分は入れ替え）。Telegram の /list で見られます。線（╱）も送れます：線を右へ伸ばした今の値段の所を、細いゾーンとして見張ります。［買い LIMIT］［売り LIMIT］で予約注文のロットを計算します（記録はしません）。</p>
+        <p class="note">ゾーン（箱）を描いて［見張り役に送る］。右へ伸ばした箱が全部、見張り役のゾーンになります（前に送った分は入れ替え）。Telegram の /list で見られます。線（╱）と水平線（―）も送れます：線を右へ伸ばした今の値段の所を、細いゾーンとして見張ります（到着・反発のサイン・割った）。［買い LIMIT］［売り LIMIT］で予約注文のロットを計算します（記録はしません）。</p>
         <div class="lkey"><input type="password" id="lKey" placeholder="合言葉（最初に1回）" autocomplete="off"><button type="button" class="ghost" id="lKeySave">保存</button></div>
         <div class="row"><button type="button" class="primary" id="lSend">見張り役に送る</button><button type="button" class="ghost" id="lReload">最新の足にする</button></div>
         <p id="lMsg"></p>
@@ -1074,6 +1074,7 @@ $('lSend').addEventListener('click', async () => {
   const key = liveKey(); if (!key) { lmsg('先に合言葉を入れて［保存］してください。', 'dn'); return; }
   const zones = draws.filter(d => d.type === 'box' && d.ext).map(d => ({k: d.id, lo: Math.min(d.p1, d.p2), hi: Math.max(d.p1, d.p2)}));
   const lines = draws.filter(d => d.type === 'tl' && d.t1 !== d.t2).map(d => ({k: d.id, t1: d.t1, p1: d.p1, t2: d.t2, p2: d.p2}));   // 線も（右へ伸ばして見張る）
+  const tN = nowT(); draws.filter(d => d.type === 'h').forEach(d => lines.push({k: d.id, t1: tN - 3600, p1: d.p1, t2: tN, p2: d.p1}));   // 水平線は傾き 0 の線として（到着・反発・割った の通知）
   if (!zones.length && !lines.length) { lmsg('右へ伸ばした箱も線もありません。［▭ ゾーン］か［╱ 線］で描いてください。', 'dn'); return; }
   $('lSend').disabled = true; lmsg('送っています…');
   let j;
@@ -1102,6 +1103,7 @@ function planCaption() {
   const px = nowPrice(), boxes = draws.filter(d => d.type === 'box' && d.ext), lines = draws.filter(d => d.type === 'tl');
   if (boxes.length) L.push('', ...boxes.map(b => { const lo = Math.min(b.p1, b.p2), hi = Math.max(b.p1, b.p2); return `▭ ${px > hi ? 'サポート' : px < lo ? 'レジスタンス' : 'ゾーン'} ${f2(lo)}〜${f2(hi)}`; }).slice(0, 8));
   if (lines.length) L.push(`╱ 線 ${lines.length}本`);
+  const hs = draws.filter(d => d.type === 'h'); if (hs.length) L.push(...hs.map(h => `― 水平線 ${f2(h.p1)}`).slice(0, 6));
   const memo = $('lNote').value.trim(); if (memo) L.push('', memo);
   return L.join('\n').slice(0, 1000);
 }
